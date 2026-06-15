@@ -112,7 +112,7 @@ h3 { font-weight: 600; color: #cbd5e1; }
 
 .tacho-display {
     background: #000; border: 3px solid #3b82f6; border-radius: 20px;
-    padding: 20px; text-align: center; font-family: 'Courier New', monospace;
+    padding: 20px; text-align: center;
 }
 .tacho-time {
     font-size: 3em; font-weight: 900; color: #10b981;
@@ -126,6 +126,33 @@ h3 { font-weight: 600; color: #cbd5e1; }
 .leaderboard-bronze { color: #d97706; font-weight: 700; }
 </style>
 """, unsafe_allow_html=True)
+
+# ============================================
+# DATABASE CONNECTION
+# ============================================
+from sqlalchemy import create_engine, text as sa_text
+
+db_url = f"postgresql://{os.environ.get('PGUSER','postgres')}:{os.environ.get('PGPASSWORD','')}@{os.environ.get('PGHOST','localhost')}:{os.environ.get('PGPORT','5432')}/{os.environ.get('PGDATABASE','postgres')}"
+
+try:
+    engine = create_engine(db_url)
+    
+    class DB:
+        def query(self, sql, params=None):
+            return pd.read_sql(sql, engine, params=params)
+        def session(self):
+            from contextlib import contextmanager
+            @contextmanager
+            def _s():
+                c = engine.connect()
+                try: yield c
+                finally: c.close()
+            return _s()
+    
+    db = DB()
+except Exception as e:
+    st.error(f"Database connection failed: {str(e)[:100]}")
+    st.stop()
 
 # ============================================
 # SECURITY
@@ -256,7 +283,6 @@ class TachoEngine:
     def get_status(self):
         max_drive = timedelta(hours=4, minutes=30)
         max_day = timedelta(hours=9)
-        required_break = timedelta(minutes=45)
         
         total = st.session_state.tacho_driving
         if st.session_state.tacho_start:
@@ -340,34 +366,6 @@ DVSA_CHECKLIST = {
 }
 
 # ============================================
-# DATABASE CONNECTION
-# ============================================
-from sqlalchemy import text as sa_text
-
-try:
-    db = st.connection("postgresql", type="sql")
-except:
-    try:
-        from sqlalchemy import create_engine
-        db_url = f"postgresql://{os.environ.get('PGUSER','postgres')}:{os.environ.get('PGPASSWORD','')}@{os.environ.get('PGHOST','localhost')}:{os.environ.get('PGPORT','5432')}/{os.environ.get('PGDATABASE','postgres')}"
-        engine = create_engine(db_url)
-        class RenderDB:
-            def query(self, sql, params=None):
-                return pd.read_sql(sql, engine, params=params)
-            def session(self):
-                from contextlib import contextmanager
-                @contextmanager
-                def _s():
-                    c = engine.connect()
-                    try: yield c
-                    finally: c.close()
-                return _s()
-        db = RenderDB()
-    except:
-        st.error("Database connection failed")
-        st.stop()
-
-# ============================================
 # SESSION STATE
 # ============================================
 if "logged_in" not in st.session_state:
@@ -407,16 +405,19 @@ if not st.session_state.logged_in:
                 u = st.text_input("Username")
                 p = st.text_input("Password", type="password")
                 if st.form_submit_button("Login", type="primary", use_container_width=True):
-                    with db.session() as s:
-                        row = s.execute(sa_text("SELECT password, role, company_id FROM users WHERE username = :u"), {"u": u}).fetchone()
-                    if row and SecurityEngine.verify_password(p, row[0]):
-                        st.session_state.logged_in = True
-                        st.session_state.user = u
-                        st.session_state.role = row[1]
-                        st.session_state.cid = row[2]
-                        st.rerun()
-                    else:
-                        st.error("Invalid credentials")
+                    try:
+                        with db.session() as s:
+                            row = s.execute(sa_text("SELECT password, role, company_id FROM users WHERE username = :u"), {"u": u}).fetchone()
+                        if row and SecurityEngine.verify_password(p, row[0]):
+                            st.session_state.logged_in = True
+                            st.session_state.user = u
+                            st.session_state.role = row[1]
+                            st.session_state.cid = row[2]
+                            st.rerun()
+                        else:
+                            st.error("Invalid credentials")
+                    except Exception as e:
+                        st.error(f"Login error: {str(e)[:100]}")
         
         with tab2:
             with st.form("register"):
@@ -436,8 +437,8 @@ if not st.session_state.logged_in:
                                 s.execute(sa_text("INSERT INTO users (username, password, role, company_id) VALUES (:u, :p, 'admin', :c)"), {"u": au, "p": SecurityEngine.hash_password(ap), "c": cid})
                                 s.commit()
                             st.success("Registered! Go to Login tab.")
-                        except:
-                            st.error("Company or username exists")
+                        except Exception as e:
+                            st.error(f"Registration failed: {str(e)[:100]}")
     st.stop()
 
 # ============================================
@@ -600,23 +601,26 @@ elif page == "🔍 DVSA Inspection":
                 st.error("Signature required")
             else:
                 status = "PASS" if ok else f"DEFECT - {severity}"
-                with db.session() as s:
-                    s.execute(sa_text("INSERT INTO ops (time, reg, mileage, status, notes, driver, company_id) VALUES (:t,:r,:m,:s,:n,:d,:c)"), {"t":datetime.now(),"r":reg,"m":mileage,"s":status,"n":notes or "Passed","d":st.session_state.user,"c":cid})
-                    s.commit()
-                
-                if ok:
-                    st.success("✅ PASS — Vehicle roadworthy!")
-                    st.balloons()
-                else:
-                    if api_key and notes:
-                        with st.spinner("AI analysing..."):
-                            st.info(f"🤖 AI: {ai.assess_defect(reg, ', '.join(failed), notes)}")
-                    st.warning("⚠️ Defect logged")
-                time.sleep(2)
-                st.rerun()
+                try:
+                    with db.session() as s:
+                        s.execute(sa_text("INSERT INTO ops (time, reg, mileage, status, notes, driver, company_id) VALUES (:t,:r,:m,:s,:n,:d,:c)"), {"t":datetime.now(),"r":reg,"m":mileage,"s":status,"n":notes or "Passed","d":st.session_state.user,"c":cid})
+                        s.commit()
+                    
+                    if ok:
+                        st.success("✅ PASS — Vehicle roadworthy!")
+                        st.balloons()
+                    else:
+                        if api_key and notes:
+                            with st.spinner("AI analysing..."):
+                                st.info(f"🤖 AI: {ai.assess_defect(reg, ', '.join(failed), notes)}")
+                        st.warning("⚠️ Defect logged")
+                    time.sleep(2)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Submit failed: {str(e)[:100]}")
 
 # ============================================
-# ⏱️ TACHO TIMER (NEW!)
+# ⏱️ TACHO TIMER
 # ============================================
 elif page == "⏱️ Tacho Timer":
     st.markdown("<h1>⏱️ Digital Tachograph Timer</h1><p style='color:#94a3b8;'>EU/AETR driving hours compliance tracker</p>", unsafe_allow_html=True)
@@ -624,7 +628,6 @@ elif page == "⏱️ Tacho Timer":
     
     status = tacho.get_status()
     
-    # Main tacho display
     col_t1, col_t2, col_t3 = st.columns(3)
     
     with col_t1:
@@ -660,7 +663,6 @@ elif page == "⏱️ Tacho Timer":
     
     st.markdown("---")
     
-    # Controls
     col_ctrl1, col_ctrl2, col_ctrl3 = st.columns(3)
     
     with col_ctrl1:
@@ -697,7 +699,7 @@ elif page == "⏱️ Tacho Timer":
     """)
 
 # ============================================
-# 📸 PHOTO EVIDENCE (NEW!)
+# 📸 PHOTO EVIDENCE
 # ============================================
 elif page == "📸 Photo Evidence":
     st.markdown("<h1>📸 Photo Evidence Capture</h1><p style='color:#94a3b8;'>Photograph defects for insurance & DVSA records</p>", unsafe_allow_html=True)
@@ -708,7 +710,8 @@ elif page == "📸 Photo Evidence":
     with tab_photo1:
         st.markdown("### Capture Defect Photo")
         
-        vehicle = st.selectbox("Vehicle", db.query("SELECT reg FROM vehicles WHERE company_id = :c", params={"c": cid})['reg'].tolist() if not db.query("SELECT reg FROM vehicles WHERE company_id = :c", params={"c": cid}).empty else ["No vehicles"])
+        veh_list = db.query("SELECT reg FROM vehicles WHERE company_id = :c", params={"c": cid})
+        vehicle = st.selectbox("Vehicle", veh_list['reg'].tolist() if not veh_list.empty else ["No vehicles"])
         
         col_cam, col_desc = st.columns([1, 1])
         
@@ -728,7 +731,7 @@ elif page == "📸 Photo Evidence":
             img_b64 = base64.b64encode(buffered.getvalue()).decode()
             
             with db.session() as s:
-                s.execute(sa_text("INSERT INTO ops (time, reg, mileage, status, notes, driver, company_id) VALUES (:t,:r,0,'PHOTO EVIDENCE',:n,:d,:c)"), {"t":datetime.now(),"r":vehicle,"n":f"[PHOTO] {photo_desc} | Tags: {', '.join(photo_tags)} | Data: {img_b64[:100]}...","d":st.session_state.user,"c":cid})
+                s.execute(sa_text("INSERT INTO ops (time, reg, mileage, status, notes, driver, company_id) VALUES (:t,:r,0,'PHOTO EVIDENCE',:n,:d,:c)"), {"t":datetime.now(),"r":vehicle,"n":f"[PHOTO] {photo_desc} | Tags: {', '.join(photo_tags)}","d":st.session_state.user,"c":cid})
                 s.commit()
             st.success("✅ Photo evidence saved!")
     
@@ -743,7 +746,7 @@ elif page == "📸 Photo Evidence":
             st.info("No photos captured yet")
 
 # ============================================
-# 🏆 DRIVER LEAGUE TABLE (NEW!)
+# 🏆 DRIVER LEAGUE
 # ============================================
 elif page == "🏆 Driver League":
     st.markdown("<h1>🏆 Driver Performance League</h1><p style='color:#94a3b8;'>Weekly rankings based on safety & compliance</p>", unsafe_allow_html=True)
@@ -755,7 +758,6 @@ elif page == "🏆 Driver League":
     if not users.empty and len(ops) > 0:
         leaderboard = FleetAnalytics.get_leaderboard(ops, users)
         
-        # Top 3 podium
         col_p1, col_p2, col_p3 = st.columns([1, 1.5, 1])
         
         with col_p2:
@@ -920,15 +922,18 @@ elif page == "⚙️ Settings":
         new = st.text_input("New Password", type="password")
         if st.form_submit_button("Update"):
             if cur and new and len(new)>=8:
-                with db.session() as s:
-                    stored = s.execute(sa_text("SELECT password FROM users WHERE username=:u AND company_id=:c"), {"u":st.session_state.user,"c":cid}).fetchone()
-                if stored and SecurityEngine.verify_password(cur, stored[0]):
+                try:
                     with db.session() as s:
-                        s.execute(sa_text("UPDATE users SET password=:p WHERE username=:u AND company_id=:c"), {"p":SecurityEngine.hash_password(new),"u":st.session_state.user,"c":cid})
-                        s.commit()
-                    st.success("Updated!")
-                else:
-                    st.error("Wrong password")
+                        stored = s.execute(sa_text("SELECT password FROM users WHERE username=:u AND company_id=:c"), {"u":st.session_state.user,"c":cid}).fetchone()
+                    if stored and SecurityEngine.verify_password(cur, stored[0]):
+                        with db.session() as s:
+                            s.execute(sa_text("UPDATE users SET password=:p WHERE username=:u AND company_id=:c"), {"p":SecurityEngine.hash_password(new),"u":st.session_state.user,"c":cid})
+                            s.commit()
+                        st.success("Updated!")
+                    else:
+                        st.error("Wrong password")
+                except Exception as e:
+                    st.error(f"Error: {str(e)[:100]}")
 
 st.markdown("---")
 st.markdown('<div style="text-align:center;color:#64748b;">🚛 FleetPro 365 Enterprise • DVSA Compliant • Tacho Timer • Photo Evidence • Driver League</div>', unsafe_allow_html=True)
