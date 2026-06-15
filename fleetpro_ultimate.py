@@ -44,7 +44,7 @@ h1 { font-weight: 900; letter-spacing: -1px; }
 """, unsafe_allow_html=True)
 
 # ============================================
-# DATABASE
+# DATABASE - DIRECT CONNECTION
 # ============================================
 from sqlalchemy import create_engine, text as sa_text
 
