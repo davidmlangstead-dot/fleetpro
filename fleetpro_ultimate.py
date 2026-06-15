@@ -3,7 +3,6 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 import requests
 import hashlib
@@ -22,34 +21,25 @@ st.markdown("""
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 * { font-family: 'Inter', sans-serif; }
 .stApp { background: linear-gradient(145deg, #0a0e27 0%, #1a1040 100%); background-attachment: fixed; }
-.glass-card { background: linear-gradient(135deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01)); backdrop-filter: blur(30px); border: 1px solid rgba(255,255,255,0.06); border-radius: 20px; padding: 24px; transition: all 0.3s ease; }
-.glass-card:hover { border-color: rgba(59,130,246,0.3); box-shadow: 0 20px 60px rgba(0,0,0,0.4); }
+.glass-card { background: linear-gradient(135deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01)); backdrop-filter: blur(30px); border: 1px solid rgba(255,255,255,0.06); border-radius: 20px; padding: 24px; }
 .metric-card { background: linear-gradient(135deg, rgba(59,130,246,0.08), rgba(139,92,246,0.06)); border: 1px solid rgba(59,130,246,0.15); border-radius: 18px; padding: 24px; position: relative; overflow: hidden; }
 .metric-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, #3b82f6, #8b5cf6); }
 .metric-value { font-size: 2.5em; font-weight: 900; background: linear-gradient(135deg, #60a5fa, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 8px 0; }
 .metric-label { color: #94a3b8; font-size: 0.75em; font-weight: 500; text-transform: uppercase; letter-spacing: 3px; }
-.badge-pass { background: linear-gradient(135deg, #059669, #10b981); color: white; padding: 6px 16px; border-radius: 20px; font-weight: 600; font-size: 0.85em; }
-.badge-minor { background: linear-gradient(135deg, #d97706, #f59e0b); color: white; padding: 6px 16px; border-radius: 20px; font-weight: 600; font-size: 0.85em; }
-.badge-major { background: linear-gradient(135deg, #dc2626, #ef4444); color: white; padding: 6px 16px; border-radius: 20px; font-weight: 600; font-size: 0.85em; }
-.badge-vor { background: linear-gradient(135deg, #7c3aed, #a855f7); color: white; padding: 6px 16px; border-radius: 20px; font-weight: 600; font-size: 0.85em; animation: pulse 2s infinite; }
+.badge-pass { background: #10b981; color: white; padding: 6px 16px; border-radius: 20px; font-weight: 600; font-size: 0.85em; }
+.badge-minor { background: #f59e0b; color: white; padding: 6px 16px; border-radius: 20px; font-weight: 600; font-size: 0.85em; }
+.badge-major { background: #ef4444; color: white; padding: 6px 16px; border-radius: 20px; font-weight: 600; font-size: 0.85em; }
+.badge-vor { background: #7c3aed; color: white; padding: 6px 16px; border-radius: 20px; font-weight: 600; font-size: 0.85em; animation: pulse 2s infinite; }
 @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.7; } }
-.stButton > button { border-radius: 14px; font-weight: 600; border: none; background: linear-gradient(135deg, #3b82f6, #6366f1); color: white; padding: 14px 28px; transition: all 0.3s; }
+.stButton > button { border-radius: 14px; font-weight: 600; border: none; background: linear-gradient(135deg, #3b82f6, #6366f1); color: white; padding: 14px 28px; }
 .stButton > button:hover { transform: translateY(-3px); box-shadow: 0 15px 35px rgba(59,130,246,0.4); }
 .stTextInput > div > div > input, .stSelectbox > div > div > select, .stTextArea > div > div > textarea { border-radius: 14px; border: 2px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.02); color: white; }
 [data-testid="stSidebar"] { background: rgba(10,14,39,0.97); border-right: 1px solid rgba(255,255,255,0.04); }
-.stTabs [data-baseweb="tab-list"] { gap: 6px; background: rgba(255,255,255,0.02); border-radius: 16px; padding: 6px; }
-.stTabs [data-baseweb="tab"] { border-radius: 12px; padding: 12px 24px; font-weight: 500; }
-.stTabs [data-baseweb="tab"][aria-selected="true"] { background: linear-gradient(135deg, rgba(59,130,246,0.2), rgba(139,92,246,0.2)); color: white; }
 h1 { font-weight: 900; letter-spacing: -1px; }
-h2 { font-weight: 700; color: #e2e8f0; }
-h3 { font-weight: 600; color: #cbd5e1; }
 .tacho-display { background: #000; border: 3px solid #3b82f6; border-radius: 20px; padding: 20px; text-align: center; }
 .tacho-time { font-size: 3em; font-weight: 900; color: #10b981; font-family: 'Courier New', monospace; }
 .tacho-warning { color: #ef4444; animation: pulse 1s infinite; }
 .tacho-label { color: #94a3b8; font-size: 0.8em; text-transform: uppercase; letter-spacing: 2px; }
-.leaderboard-gold { color: #f59e0b; font-weight: 900; font-size: 1.2em; }
-.leaderboard-silver { color: #94a3b8; font-weight: 700; }
-.leaderboard-bronze { color: #d97706; font-weight: 700; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -63,7 +53,7 @@ PGPORT = os.environ.get('PGPORT', '5432')
 PGDATABASE = os.environ.get('PGDATABASE', 'postgres')
 PGUSER = os.environ.get('PGUSER', 'postgres')
 PGPASSWORD = os.environ.get('PGPASSWORD', 'FleetPro2024!')
-OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
+OPENAI_API_KEY = 'sk-proj-TC2fgnfimB9wR4k08IXW5g'
 
 db_url = f"postgresql://{PGUSER}:{PGPASSWORD}@{PGHOST}:{PGPORT}/{PGDATABASE}"
 
@@ -105,7 +95,7 @@ class SecurityEngine:
 # AI
 # ============================================
 def ai_assess(vehicle, defects, notes):
-    if not OPENAI_API_KEY: return "AI offline — add key to Render environment"
+    if not OPENAI_API_KEY: return "AI offline"
     try:
         r = requests.post("https://api.openai.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
@@ -141,7 +131,7 @@ class FleetAnalytics:
         total = len(d); passes = len(d[d['status']=='PASS'])
         vor = len(d[d['status'].str.contains('VOR|Dangerous', case=False, na=False)])
         score = round(max(0, min(100, ((passes/total)*60) + (min(len(d[d['time'] > datetime.now() - timedelta(days=7)])*5, 20)) - (vor*20) + (10 if total>5 else 0))), 1)
-        return {'score': score, 'total': total, 'passes': passes, 'pass_rate': round((passes/total)*100, 1), 'vor': vor, 'trend': '🏆 Elite' if score>90 else '⭐ Excellent' if score>75 else '👍 Good' if score>50 else '⚠️ Needs Work', 'rank': 0}
+        return {'score': score, 'total': total, 'passes': passes, 'pass_rate': round((passes/total)*100, 1), 'vor': vor, 'trend': 'Elite' if score>90 else 'Excellent' if score>75 else 'Good' if score>50 else 'Needs Work', 'rank': 0}
     @staticmethod
     def get_leaderboard(inspections, users_df):
         scores = []
@@ -155,7 +145,7 @@ class FleetAnalytics:
     @staticmethod
     def generate_gps(reg):
         random.seed(hash(reg) % 100000)
-        return {'lat': 51.3 + random.uniform(-1, 1), 'lon': -0.5 + random.uniform(-1.2, 1.2), 'speed': random.randint(0, 70), 'status': random.choice(['Moving','Idle','Parked']), 'fuel': random.randint(20, 100)}
+        return {'lat': 51.3 + random.uniform(-1, 1), 'lon': -0.5 + random.uniform(-1.2, 1.2), 'speed': random.randint(0, 70), 'status': random.choice(['Moving','Idle','Parked'])}
 
 # ============================================
 # TACHO
@@ -177,9 +167,9 @@ class TachoEngine:
         time_left = max_drive - (total % max_drive) if total > timedelta(0) else max_drive
         day_left = max_day - total
         warning = ""
-        if day_left <= timedelta(0): warning = "⚠️ DAILY LIMIT EXCEEDED"
-        elif day_left < timedelta(hours=1): warning = f"⚠️ {int(day_left.total_seconds()//60)}min remaining today"
-        elif time_left < timedelta(minutes=15): warning = f"⚠️ BREAK in {int(time_left.total_seconds()//60)}min"
+        if day_left <= timedelta(0): warning = "DAILY LIMIT EXCEEDED"
+        elif day_left < timedelta(hours=1): warning = f"{int(day_left.total_seconds()//60)}min remaining today"
+        elif time_left < timedelta(minutes=15): warning = f"BREAK in {int(time_left.total_seconds()//60)}min"
         return {'total_today': total, 'time_until_break': max(timedelta(0), time_left), 'day_remaining': max(timedelta(0), day_left), 'warning': warning, 'is_driving': st.session_state.tacho_start is not None, 'break_needed': time_left <= timedelta(minutes=30)}
 
 # ============================================
@@ -243,6 +233,7 @@ if not st.session_state.logged_in:
             <div style="font-size:4em;">🚛</div>
             <h1 style="font-size:3em;font-weight:900;margin:0;background:linear-gradient(135deg,#60a5fa,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">FleetPro 365</h1>
             <p style="color:#94a3b8;font-size:1.1em;">ENTERPRISE FLEET MANAGEMENT</p>
+            <p style="color:#64748b;font-size:0.85em;">DVSA • RHA • FORS • Tacho Timer • AI Analysis</p>
         </div>
         """, unsafe_allow_html=True)
         tab1, tab2 = st.tabs(["Login", "Register"])
@@ -304,28 +295,23 @@ with st.sidebar:
     if st.button("Logout", use_container_width=True): st.session_state.clear(); st.rerun()
 
 # ============================================
-# COMMAND CENTRE
+# PAGES
 # ============================================
 if page == "🏠 Command Centre":
     st.markdown(f"<h1>Command Centre</h1><p style='color:#94a3b8;'>{datetime.now().strftime('%A, %d %B %Y — %H:%M')}</p>", unsafe_allow_html=True)
     st.markdown("---")
     ops = db.query("SELECT * FROM ops WHERE company_id = :c ORDER BY time DESC", params={"c": cid})
     vc = db.query("SELECT COUNT(*) as c FROM vehicles WHERE company_id = :c", params={"c": cid}).iloc[0,0]
-    dc = db.query("SELECT COUNT(*) as c FROM users WHERE company_id = :c AND role='driver'", params={"c": cid}).iloc[0,0]
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3 = st.columns(3)
     with c1: st.markdown(f'<div class="metric-card"><div class="metric-label">Fleet Health</div><div class="metric-value">{FleetAnalytics.health_score(ops)}%</div></div>', unsafe_allow_html=True)
     with c2: st.markdown(f'<div class="metric-card"><div class="metric-label">DVSA Score</div><div class="metric-value">{FleetAnalytics.compliance_score(ops)}%</div></div>', unsafe_allow_html=True)
     with c3: st.markdown(f'<div class="metric-card"><div class="metric-label">Vehicles</div><div class="metric-value">{vc}</div></div>', unsafe_allow_html=True)
-    with c4: st.markdown(f'<div class="metric-card"><div class="metric-label">Drivers</div><div class="metric-value">{dc}</div></div>', unsafe_allow_html=True)
     if len(ops) > 0:
         st.markdown("---"); st.markdown("### Recent Activity")
-        for _, r in ops.head(8).iterrows():
+        for _, r in ops.head(10).iterrows():
             b = "badge-pass" if r['status']=='PASS' else ("badge-vor" if 'VOR' in str(r['status']) else "badge-major" if 'Major' in str(r['status']) else "badge-minor")
             st.markdown(f'<div class="glass-card" style="margin-bottom:6px;padding:12px;"><span style="font-weight:600;">{r["reg"]}</span> • {r["driver"]} • {r["time"].strftime("%H:%M")} • {r["mileage"]:,.0f}mi <span class="{b}" style="float:right;">{r["status"]}</span></div>', unsafe_allow_html=True)
 
-# ============================================
-# FLEET
-# ============================================
 elif page == "🚛 Fleet Registry":
     st.markdown("<h1>Fleet Registry</h1>", unsafe_allow_html=True); st.markdown("---")
     vehicles = db.query("SELECT * FROM vehicles WHERE company_id = :c ORDER BY created_at DESC", params={"c": cid})
@@ -343,12 +329,8 @@ elif page == "🚛 Fleet Registry":
                         with db.session() as s:
                             s.execute(sa_text("INSERT INTO vehicles (reg, type, company_id) VALUES (:r,:t,:c)"), {"r":reg,"t":t,"c":cid}); s.commit()
                         st.success(f"{reg} added!"); st.rerun()
-                    except:
-                        st.error("Already registered")
+                    except: st.error("Already registered")
 
-# ============================================
-# INSPECTION
-# ============================================
 elif page == "🔍 DVSA Inspection":
     st.markdown("<h1>DVSA Daily Walkaround</h1>", unsafe_allow_html=True); st.markdown("---")
     vehicles = db.query("SELECT reg FROM vehicles WHERE company_id = :c", params={"c": cid})
@@ -356,7 +338,7 @@ elif page == "🔍 DVSA Inspection":
     with st.form("insp"):
         reg = st.selectbox("Vehicle", vehicles['reg'].tolist())
         mileage = st.number_input("Mileage", min_value=0, step=1000)
-        st.markdown("### Checklist")
+        st.markdown("### DVSA Checklist")
         checks = {}
         for cat, items in DVSA.items():
             st.markdown(f"**{cat}**"); cols = st.columns(3)
@@ -380,14 +362,11 @@ elif page == "🔍 DVSA Inspection":
                     if ok: st.success("PASS!"); st.balloons()
                     else:
                         if OPENAI_API_KEY and notes:
-                            with st.spinner("AI..."): st.info(ai_assess(reg, ', '.join(failed), notes))
+                            with st.spinner("AI analysing..."): st.info(f"🤖 AI: {ai_assess(reg, ', '.join(failed), notes)}")
                         st.warning("Defect logged")
                     time.sleep(2); st.rerun()
                 except Exception as e: st.error(str(e)[:100])
 
-# ============================================
-# TACHO
-# ============================================
 elif page == "⏱️ Tacho Timer":
     st.markdown("<h1>⏱️ Tacho Timer</h1>", unsafe_allow_html=True); st.markdown("---")
     s = tacho.get_status()
@@ -414,9 +393,6 @@ elif page == "⏱️ Tacho Timer":
     with cc3:
         if st.button("🌙 Reset", use_container_width=True): tacho.stop_driving(); st.session_state.tacho_driving = timedelta(0); st.rerun()
 
-# ============================================
-# PHOTO
-# ============================================
 elif page == "📸 Photo Evidence":
     st.markdown("<h1>📸 Photo Evidence</h1>", unsafe_allow_html=True); st.markdown("---")
     veh = db.query("SELECT reg FROM vehicles WHERE company_id = :c", params={"c": cid})
@@ -429,9 +405,6 @@ elif page == "📸 Photo Evidence":
             s.execute(sa_text("INSERT INTO ops (time, reg, mileage, status, notes, driver, company_id) VALUES (:t,:r,0,'PHOTO',:n,:d,:c)"), {"t":datetime.now(),"r":vehicle,"n":desc,"d":st.session_state.user,"c":cid}); s.commit()
         st.success("Saved!")
 
-# ============================================
-# LEAGUE
-# ============================================
 elif page == "🏆 Driver League":
     st.markdown("<h1>🏆 Driver League</h1>", unsafe_allow_html=True); st.markdown("---")
     ops = db.query("SELECT * FROM ops WHERE company_id = :c", params={"c": cid})
@@ -443,9 +416,6 @@ elif page == "🏆 Driver League":
             sc = '#10b981' if d['score']>75 else '#f59e0b' if d['score']>50 else '#ef4444'
             st.markdown(f'<div class="glass-card" style="margin-bottom:6px;padding:14px;"><span style="font-size:1.3em;">{icon}</span> <b>{d["name"]}</b> — <span style="color:{sc};font-weight:700;">{d["score"]}/100</span> | {d["pass_rate"]}% | {d["trend"]}</div>', unsafe_allow_html=True)
 
-# ============================================
-# MAP
-# ============================================
 elif page == "🗺️ Live Map":
     st.markdown("<h1>Live Map</h1>", unsafe_allow_html=True); st.markdown("---")
     vehicles = db.query("SELECT reg, type FROM vehicles WHERE company_id = :c", params={"c": cid})
@@ -460,9 +430,6 @@ elif page == "🗺️ Live Map":
         fig.update_layout(mapbox=dict(style='carto-darkmatter', center=dict(lat=51.5, lon=-0.1), zoom=9), height=500, margin=dict(l=0,r=0,t=0,b=0))
         st.plotly_chart(fig, use_container_width=True)
 
-# ============================================
-# COMPLIANCE
-# ============================================
 elif page == "📊 Compliance":
     st.markdown("<h1>Compliance</h1>", unsafe_allow_html=True); st.markdown("---")
     ops = db.query("SELECT * FROM ops WHERE company_id = :c", params={"c": cid})
@@ -475,27 +442,19 @@ elif page == "📊 Compliance":
         fig.update_layout(template='plotly_dark', height=400, margin=dict(l=0,r=0,t=10,b=0))
         st.plotly_chart(fig, use_container_width=True)
 
-# ============================================
-# AI
-# ============================================
 elif page == "🤖 AI Analysis":
     st.markdown("<h1>AI Analysis</h1>", unsafe_allow_html=True); st.markdown("---")
-    if not OPENAI_API_KEY: st.warning("Add OpenAI key to Render environment")
-    else:
-        vehicles = db.query("SELECT reg FROM vehicles WHERE company_id = :c", params={"c": cid})
-        reg = st.selectbox("Vehicle", vehicles['reg'].tolist())
-        insp = db.query("SELECT * FROM ops WHERE reg = :r AND company_id = :c ORDER BY time DESC LIMIT 20", params={"r": reg, "c": cid})
-        if len(insp) > 0:
-            defects = insp[insp['status']!='PASS']
-            fig = go.Figure(); fig.add_trace(go.Scatter(x=insp['time'], y=insp['mileage'], mode='lines+markers', line=dict(color='#3b82f6', width=3)))
-            if len(defects) > 0: fig.add_trace(go.Scatter(x=defects['time'], y=defects['mileage'], mode='markers', marker=dict(color='#ef4444', size=12, symbol='x')))
-            fig.update_layout(template='plotly_dark', height=350, margin=dict(l=0,r=0,t=10,b=0)); st.plotly_chart(fig, use_container_width=True)
-            if st.button("Run AI", type="primary"):
-                with st.spinner("..."): st.info(ai_assess(reg, f"{len(defects)} defects", "Analysis"))
+    vehicles = db.query("SELECT reg FROM vehicles WHERE company_id = :c", params={"c": cid})
+    reg = st.selectbox("Vehicle", vehicles['reg'].tolist())
+    insp = db.query("SELECT * FROM ops WHERE reg = :r AND company_id = :c ORDER BY time DESC LIMIT 20", params={"r": reg, "c": cid})
+    if len(insp) > 0:
+        defects = insp[insp['status']!='PASS']
+        fig = go.Figure(); fig.add_trace(go.Scatter(x=insp['time'], y=insp['mileage'], mode='lines+markers', line=dict(color='#3b82f6', width=3)))
+        if len(defects) > 0: fig.add_trace(go.Scatter(x=defects['time'], y=defects['mileage'], mode='markers', marker=dict(color='#ef4444', size=12, symbol='x')))
+        fig.update_layout(template='plotly_dark', height=350, margin=dict(l=0,r=0,t=10,b=0)); st.plotly_chart(fig, use_container_width=True)
+        if st.button("Run AI", type="primary"):
+            with st.spinner("..."): st.info(ai_assess(reg, f"{len(defects)} defects", "Analysis"))
 
-# ============================================
-# REPORTS
-# ============================================
 elif page == "📋 Reports":
     st.markdown("<h1>Reports</h1>", unsafe_allow_html=True); st.markdown("---")
     vehicles = db.query("SELECT reg FROM vehicles WHERE company_id = :c", params={"c": cid})
@@ -504,12 +463,8 @@ elif page == "📋 Reports":
     if not insp.empty:
         st.dataframe(insp, use_container_width=True)
         pdf = ReportGenerator.dvsa_report(reg, insp)
-        st.download_button("📄 PDF", pdf, f"DVSA_{reg}.pdf")
-        st.download_button("📊 CSV", insp.to_csv(index=False), f"{reg}.csv")
+        st.download_button("📄 PDF", pdf, f"DVSA_{reg}.pdf"); st.download_button("📊 CSV", insp.to_csv(index=False), f"{reg}.csv")
 
-# ============================================
-# SETTINGS
-# ============================================
 elif page == "⚙️ Settings":
     st.markdown("<h1>Settings</h1>", unsafe_allow_html=True); st.markdown("---")
     with st.form("pwd"):
@@ -524,4 +479,4 @@ elif page == "⚙️ Settings":
                     st.success("Done!")
 
 st.markdown("---")
-st.markdown('<div style="text-align:center;color:#64748b;">🚛 FleetPro 365 Enterprise</div>', unsafe_allow_html=True)
+st.markdown('<div style="text-align:center;color:#64748b;">🚛 FleetPro 365 Enterprise • DVSA Compliant</div>', unsafe_allow_html=True)
