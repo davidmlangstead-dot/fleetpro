@@ -46,10 +46,11 @@ h1 { font-weight: 900; letter-spacing: -1px; }
 # DATABASE - NEON
 from sqlalchemy import create_engine, text as sa_text
 
-PGHOST = st.secrets.get('PGHOST', 'ep-muddy-wind-abxafgga-pooler.eu-west-2.aws.neon.tech')
-PGPORT = st.secrets.get('PGPORT', '5432')
-PGDATABASE = st.secrets.get('PGDATABASE', 'neondb')
-PGUSER = st.secrets.get('PGUSER', 'neondb_owner')
+PGHOST = 'ep-muddy-wind-abxafgga-pooler.eu-west-2.aws.neon.tech'
+PGPORT = '5432'
+PGDATABASE = 'neondb'
+PGUSER = 'neondb_owner'
+PGPASSWORD = 'npg_EzjP9esO5qVw'
 PGPASSWORD = st.secrets.get('PGPASSWORD', 'npg_EzjP9esO5qVw')
 OPENAI_API_KEY = st.secrets.get('OPENAI_API_KEY', 'sk-proj-TC2fgnfimB9wR4k08IXW5g')
 
