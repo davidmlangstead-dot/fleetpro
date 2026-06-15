@@ -1,0 +1,10 @@
+sqlalchemy>=2.0.0
+streamlit
+pandas
+plotly
+requests
+qrcode
+Pillow
+fpdf2
+numpy
+psycopg2-binary
