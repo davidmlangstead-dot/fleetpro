@@ -17,7 +17,7 @@ from pathlib import Path
 import os
 import json
 
-st.set_page_config(page_title="Enterprise Command Centre | Fleet • Staff • Safety • Office",layout="wide",page_icon="🏢",initial_sidebar_state="expanded",manifest={"name":"Enterprise Command","short_name":"EntCmd","start_url":"/","display":"standalone","background_color":"#0a0e27","theme_color":"#3b82f6"})
+st.set_page_config(page_title="Enterprise Command Centre | Fleet • Staff • Safety • Office",layout="wide",page_icon="🏢",initial_sidebar_state="expanded")
 
 st.markdown("""
 <style>
