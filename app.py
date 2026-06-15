@@ -45,7 +45,7 @@ h1 { font-weight: 900; letter-spacing: -1px; }
 """, unsafe_allow_html=True)
 
 # ============================================
-# SQLITE DATABASE - NO EXTERNAL DB NEEDED
+# SQLITE DATABASE
 # ============================================
 DB_PATH = Path(__file__).parent / "fleetpro.db"
 
@@ -54,12 +54,11 @@ def get_db():
     conn.row_factory = sqlite3.Row
     return conn
 
-# Create tables
 conn = get_db()
 conn.execute("CREATE TABLE IF NOT EXISTS companies (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
-conn.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'driver', company_id INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
-conn.execute("CREATE TABLE IF NOT EXISTS vehicles (id INTEGER PRIMARY KEY AUTOINCREMENT, reg TEXT NOT NULL, type TEXT, company_id INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE(reg, company_id))")
-conn.execute("CREATE TABLE IF NOT EXISTS ops (id INTEGER PRIMARY KEY AUTOINCREMENT, time TIMESTAMP DEFAULT CURRENT_TIMESTAMP, reg TEXT, mileage REAL, status TEXT, notes TEXT, driver TEXT, company_id INTEGER)")
+conn.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'driver', full_name TEXT, phone TEXT, company_id INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+conn.execute("CREATE TABLE IF NOT EXISTS vehicles (id INTEGER PRIMARY KEY AUTOINCREMENT, reg TEXT NOT NULL, type TEXT, make TEXT, model TEXT, fleet_number TEXT, company_id INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE(reg, company_id))")
+conn.execute("CREATE TABLE IF NOT EXISTS ops (id INTEGER PRIMARY KEY AUTOINCREMENT, time TIMESTAMP DEFAULT CURRENT_TIMESTAMP, reg TEXT, mileage REAL, status TEXT, notes TEXT, driver TEXT, location TEXT, company_id INTEGER)")
 conn.commit()
 conn.close()
 
@@ -67,15 +66,14 @@ class SQLiteDB:
     def query(self, sql, params=None):
         conn = get_db()
         try:
-            df = pd.read_sql_query(sql, conn, params=params or {})
+            df = pd.read_sql_query(sql, conn, params=params or ())
             return df
         finally:
             conn.close()
-    
     def execute(self, sql, params=None):
         conn = get_db()
         try:
-            conn.execute(sql, params or {})
+            conn.execute(sql, params or ())
             conn.commit()
         finally:
             conn.close()
@@ -200,6 +198,9 @@ if "logged_in" not in st.session_state:
 
 tacho = TachoEngine()
 
+# ============================================
+# AUTH
+# ============================================
 if not st.session_state.logged_in:
     col1, col2, col3 = st.columns([1, 2.5, 1])
     with col2:
@@ -209,6 +210,7 @@ if not st.session_state.logged_in:
             <div style="font-size:4em;">🚛</div>
             <h1 style="font-size:3em;font-weight:900;margin:0;background:linear-gradient(135deg,#60a5fa,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">FleetPro 365</h1>
             <p style="color:#94a3b8;font-size:1.1em;">ENTERPRISE FLEET MANAGEMENT</p>
+            <p style="color:#64748b;font-size:0.85em;">DVSA • RHA • FORS • All Roles Supported</p>
         </div>
         """, unsafe_allow_html=True)
         tab1, tab2 = st.tabs(["Login", "Register"])
@@ -238,22 +240,39 @@ if not st.session_state.logged_in:
                             conn.execute("INSERT INTO companies (name) VALUES (?)", (company,))
                             cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
                             conn.execute("INSERT INTO users (username, password, role, company_id) VALUES (?, ?, 'admin', ?)", (au, SecurityEngine.hash_password(ap), cid))
-                            conn.commit()
-                            conn.close()
+                            conn.commit(); conn.close()
                             st.success("Registered! Go to Login tab.")
                         except:
                             st.error("Company or username exists")
     st.stop()
 
+# ============================================
+# MAIN APP
+# ============================================
 cid = st.session_state.cid
+role = st.session_state.role
 
 with st.sidebar:
     st.markdown('<div style="text-align:center;"><h3 style="font-weight:900;background:linear-gradient(135deg,#60a5fa,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">🚛 FleetPro 365</h3></div>', unsafe_allow_html=True)
-    st.markdown(f"**{st.session_state.user}** ({st.session_state.role.upper()})")
-    if st.session_state.role == "admin":
-        page = st.radio("", ["🏠 Command Centre", "🚛 Fleet Registry", "🔍 DVSA Inspection", "⏱️ Tacho Timer", "📸 Photo Evidence", "🏆 Driver League", "🗺️ Live Map", "📊 Compliance", "🤖 AI Analysis", "📋 Reports", "⚙️ Settings"], label_visibility="collapsed")
-    else:
+    st.markdown(f"**{st.session_state.user}** ({role.upper()})")
+    
+    # Role-based navigation
+    if role == "admin":
+        page = st.radio("", [
+            "🏠 Command Centre", "🚛 Fleet Registry", "👥 Driver Management",
+            "🔧 Workshop", "📋 Transport Manager", "🔍 DVSA Inspection",
+            "⏱️ Tacho Timer", "📸 Photo Evidence", "🏆 Driver League",
+            "🗺️ Live Map", "📊 Compliance", "🤖 AI Analysis", "📋 Reports", "⚙️ Settings"
+        ], label_visibility="collapsed")
+    elif role == "driver":
         page = st.radio("", ["🔍 DVSA Inspection", "⏱️ Tacho Timer", "📸 Photo Evidence"], label_visibility="collapsed")
+    elif role == "workshop":
+        page = st.radio("", ["🔧 Workshop", "🔍 DVSA Inspection", "📸 Photo Evidence"], label_visibility="collapsed")
+    elif role == "manager":
+        page = st.radio("", ["📋 Transport Manager", "📊 Compliance", "📋 Reports", "🏆 Driver League"], label_visibility="collapsed")
+    else:
+        page = st.radio("", ["🔍 DVSA Inspection", "⏱️ Tacho Timer"], label_visibility="collapsed")
+    
     st.markdown("---")
     try:
         today = db.query("SELECT COUNT(*) as c FROM ops WHERE company_id = ? AND DATE(time) = DATE('now')", params=(cid,)).iloc[0,0]
@@ -262,48 +281,196 @@ with st.sidebar:
     st.metric("Checks Today", today)
     if st.button("Logout", use_container_width=True): st.session_state.clear(); st.rerun()
 
+# ============================================
+# 🏠 COMMAND CENTRE (Admin)
+# ============================================
 if page == "🏠 Command Centre":
-    st.markdown(f"<h1>Command Centre</h1>", unsafe_allow_html=True); st.markdown("---")
+    st.markdown(f"<h1>Command Centre</h1><p style='color:#94a3b8;'>{datetime.now().strftime('%A, %d %B %Y — %H:%M')}</p>", unsafe_allow_html=True)
+    st.markdown("---")
     ops = db.query("SELECT * FROM ops WHERE company_id = ? ORDER BY time DESC", params=(cid,))
     vc = db.query("SELECT COUNT(*) as c FROM vehicles WHERE company_id = ?", params=(cid,)).iloc[0,0]
-    c1, c2, c3 = st.columns(3)
+    dc = db.query("SELECT COUNT(*) as c FROM users WHERE company_id = ? AND role='driver'", params=(cid,)).iloc[0,0]
+    wc = db.query("SELECT COUNT(*) as c FROM users WHERE company_id = ? AND role='workshop'", params=(cid,)).iloc[0,0]
+    mc = db.query("SELECT COUNT(*) as c FROM users WHERE company_id = ? AND role='manager'", params=(cid,)).iloc[0,0]
+    
+    c1, c2, c3, c4 = st.columns(4)
     with c1: st.markdown(f'<div class="metric-card"><div class="metric-label">Fleet Health</div><div class="metric-value">{FleetAnalytics.health_score(ops)}%</div></div>', unsafe_allow_html=True)
     with c2: st.markdown(f'<div class="metric-card"><div class="metric-label">DVSA Score</div><div class="metric-value">{FleetAnalytics.compliance_score(ops)}%</div></div>', unsafe_allow_html=True)
     with c3: st.markdown(f'<div class="metric-card"><div class="metric-label">Vehicles</div><div class="metric-value">{vc}</div></div>', unsafe_allow_html=True)
+    with c4: st.markdown(f'<div class="metric-card"><div class="metric-label">Team</div><div class="metric-value">{dc+wc+mc}</div><div style="font-size:0.7em;color:#94a3b8;">{dc} drivers | {wc} workshop | {mc} managers</div></div>', unsafe_allow_html=True)
+    
     if len(ops) > 0:
         st.markdown("---"); st.markdown("### Recent Activity")
         for _, r in ops.head(10).iterrows():
             b = "badge-pass" if r['status']=='PASS' else ("badge-vor" if 'VOR' in str(r['status']) else "badge-major" if 'Major' in str(r['status']) else "badge-minor")
             st.markdown(f'<div class="glass-card" style="margin-bottom:6px;padding:12px;"><span style="font-weight:600;">{r["reg"]}</span> • {r["driver"]} • {r["mileage"]:,.0f}mi <span class="{b}" style="float:right;">{r["status"]}</span></div>', unsafe_allow_html=True)
 
+# ============================================
+# 🚛 FLEET REGISTRY (Admin)
+# ============================================
 elif page == "🚛 Fleet Registry":
-    st.markdown("<h1>Fleet Registry</h1>", unsafe_allow_html=True)
-    vehicles = db.query("SELECT * FROM vehicles WHERE company_id = ?", params=(cid,))
+    st.markdown("<h1>🚛 Fleet Registry</h1>", unsafe_allow_html=True); st.markdown("---")
+    vehicles = db.query("SELECT * FROM vehicles WHERE company_id = ? ORDER BY created_at DESC", params=(cid,))
     col_v, col_add = st.columns([2, 1])
     with col_v:
-        for _, v in vehicles.iterrows():
-            with st.expander(f"🚛 {v['reg']} — {v.get('type','N/A')}"):
-                st.write(f"Type: {v.get('type','N/A')}")
+        if not vehicles.empty:
+            for _, v in vehicles.iterrows():
+                with st.expander(f"🚛 {v['reg']} — {v.get('type','N/A')}"):
+                    st.write(f"Type: {v.get('type','N/A')} | Make: {v.get('make','N/A')} | Model: {v.get('model','N/A')} | Fleet #: {v.get('fleet_number','N/A')}")
+        else:
+            st.info("No vehicles registered yet")
     with col_add:
+        st.markdown("### Add Vehicle")
         with st.form("add_v"):
-            reg = st.text_input("Registration*").upper(); t = st.selectbox("Type*", ["HGV","Van","Car","Trailer","Bus"])
-            if st.form_submit_button("Add", type="primary", use_container_width=True):
+            reg = st.text_input("Registration*").upper()
+            t = st.selectbox("Type*", ["HGV Artic","HGV Rigid","Van","Car","Trailer","Bus"])
+            make = st.text_input("Make")
+            model = st.text_input("Model")
+            fleet_num = st.text_input("Fleet Number")
+            if st.form_submit_button("Add Vehicle", type="primary", use_container_width=True):
                 if reg:
                     try:
                         conn = get_db()
-                        conn.execute("INSERT INTO vehicles (reg, type, company_id) VALUES (?, ?, ?)", (reg, t, cid))
+                        conn.execute("INSERT INTO vehicles (reg, type, make, model, fleet_number, company_id) VALUES (?,?,?,?,?,?)", (reg, t, make, model, fleet_num, cid))
                         conn.commit(); conn.close()
-                        st.success(f"{reg} added!"); st.rerun()
+                        st.success(f"✅ {reg} added!"); st.rerun()
                     except: st.error("Already registered")
 
+# ============================================
+# 👥 DRIVER MANAGEMENT (Admin)
+# ============================================
+elif page == "👥 Driver Management":
+    st.markdown("<h1>👥 Driver Management</h1>", unsafe_allow_html=True); st.markdown("---")
+    
+    drivers = db.query("SELECT username, full_name, phone, created_at FROM users WHERE company_id = ? AND role = 'driver' ORDER BY created_at DESC", params=(cid,))
+    
+    if not drivers.empty:
+        st.markdown("### Current Drivers")
+        st.dataframe(drivers, use_container_width=True, hide_index=True)
+        
+        st.markdown("---")
+        st.markdown("### Driver Performance")
+        ops = db.query("SELECT * FROM ops WHERE company_id = ?", params=(cid,))
+        for _, d in drivers.iterrows():
+            sc = FleetAnalytics.driver_scorecard(ops, d['username'])
+            sc_color = '#10b981' if sc['score']>75 else '#f59e0b' if sc['score']>50 else '#ef4444'
+            st.markdown(f'<div class="glass-card" style="margin-bottom:6px;padding:12px;"><b>{d["username"]}</b> — <span style="color:{sc_color};font-weight:700;">{sc["score"]}/100</span> | {sc["pass_rate"]}% pass | {sc["total"]} inspections | {sc["trend"]}</div>', unsafe_allow_html=True)
+    else:
+        st.info("No drivers registered yet")
+    
+    st.markdown("---")
+    st.markdown("### Add New Driver")
+    with st.form("add_driver"):
+        col_a, col_b = st.columns(2)
+        with col_a:
+            du = st.text_input("Username*")
+            dfull = st.text_input("Full Name")
+        with col_b:
+            dp = st.text_input("Password*", type="password", help="Min 8 characters")
+            dphone = st.text_input("Phone Number")
+        if st.form_submit_button("Add Driver", type="primary", use_container_width=True):
+            if du and dp and len(dp) >= 8:
+                try:
+                    conn = get_db()
+                    conn.execute("INSERT INTO users (username, password, role, full_name, phone, company_id) VALUES (?, ?, 'driver', ?, ?, ?)", (du, SecurityEngine.hash_password(dp), dfull, dphone, cid))
+                    conn.commit(); conn.close()
+                    st.success(f"✅ Driver {du} added!")
+                    st.rerun()
+                except:
+                    st.error("Username already exists")
+            else:
+                st.error("Username and password required (8+ chars)")
+
+# ============================================
+# 🔧 WORKSHOP (Admin & Workshop)
+# ============================================
+elif page == "🔧 Workshop":
+    st.markdown("<h1>🔧 Workshop Dashboard</h1><p style='color:#94a3b8;'>Defect management & repair tracking</p>", unsafe_allow_html=True)
+    st.markdown("---")
+    
+    # Show all open defects
+    defects = db.query("SELECT * FROM ops WHERE company_id = ? AND status != 'PASS' ORDER BY time DESC", params=(cid,))
+    
+    if not defects.empty:
+        st.markdown(f"### 🔴 Open Defects ({len(defects)})")
+        for _, d in defects.iterrows():
+            sev = "badge-vor" if 'VOR' in str(d['status']) else "badge-major" if 'Major' in str(d['status']) else "badge-minor"
+            st.markdown(f"""
+            <div class="glass-card" style="margin-bottom:8px;padding:14px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <div>
+                        <b>{d['reg']}</b> • Reported by {d['driver']} • {d['time']}
+                        <br><span style="color:#94a3b8;">{d['notes'][:100]}</span>
+                    </div>
+                    <span class="{sev}">{d['status']}</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.success("✅ No open defects — fleet in good condition")
+    
+    st.markdown("---")
+    st.markdown("### 🔧 Record Repair")
+    with st.form("repair"):
+        vehicles = db.query("SELECT reg FROM vehicles WHERE company_id = ?", params=(cid,))
+        reg = st.selectbox("Vehicle", vehicles['reg'].tolist() if not vehicles.empty else ["None"])
+        repair_notes = st.text_area("Repair Description")
+        if st.form_submit_button("Mark as Repaired", type="primary", use_container_width=True):
+            conn = get_db()
+            conn.execute("INSERT INTO ops (time, reg, mileage, status, notes, driver, company_id) VALUES (?,?,0,'REPAIRED',?,?,?)", (datetime.now(), reg, repair_notes, st.session_state.user, cid))
+            conn.commit(); conn.close()
+            st.success("✅ Repair recorded!"); st.rerun()
+
+# ============================================
+# 📋 TRANSPORT MANAGER (Admin & Manager)
+# ============================================
+elif page == "📋 Transport Manager":
+    st.markdown("<h1>📋 Transport Manager Dashboard</h1><p style='color:#94a3b8;'>Fleet oversight & compliance monitoring</p>", unsafe_allow_html=True)
+    st.markdown("---")
+    
+    ops = db.query("SELECT * FROM ops WHERE company_id = ? ORDER BY time DESC", params=(cid,))
+    vehicles = db.query("SELECT * FROM vehicles WHERE company_id = ?", params=(cid,))
+    drivers = db.query("SELECT * FROM users WHERE company_id = ? AND role='driver'", params=(cid,))
+    
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: st.metric("Total Vehicles", len(vehicles))
+    with c2: st.metric("Active Drivers", len(drivers))
+    with c3: st.metric("Inspections Today", len(ops[ops['time'].astype(str).str.contains(datetime.now().strftime('%Y-%m-%d'))]) if len(ops)>0 else 0)
+    with c4: st.metric("Open Defects", len(ops[ops['status']!='PASS']) if len(ops)>0 else 0)
+    
+    st.markdown("---")
+    st.markdown("### 📊 Fleet Compliance Overview")
+    if len(ops) > 0:
+        comp = FleetAnalytics.compliance_score(ops)
+        health = FleetAnalytics.health_score(ops)
+        col_a, col_b = st.columns(2)
+        with col_a:
+            color = '#10b981' if comp >= 95 else '#f59e0b' if comp >= 90 else '#ef4444'
+            st.markdown(f'<div class="metric-card"><div class="metric-label">DVSA Compliance</div><div class="metric-value" style="color:{color};">{comp}%</div></div>', unsafe_allow_html=True)
+        with col_b:
+            st.markdown(f'<div class="metric-card"><div class="metric-label">Fleet Health</div><div class="metric-value">{health}%</div></div>', unsafe_allow_html=True)
+    
+    st.markdown("---")
+    st.markdown("### 🚛 Vehicle Status Overview")
+    if not vehicles.empty:
+        for _, v in vehicles.iterrows():
+            last = db.query("SELECT * FROM ops WHERE reg = ? AND company_id = ? ORDER BY time DESC LIMIT 1", params=(v['reg'], cid))
+            status = last.iloc[0]['status'] if not last.empty else "Not inspected"
+            color = '#10b981' if status == 'PASS' else '#ef4444' if 'VOR' in str(status) else '#f59e0b'
+            st.markdown(f'<div class="glass-card" style="margin-bottom:6px;padding:12px;"><b>{v["reg"]}</b> — {v.get("type","N/A")} — <span style="color:{color};">{status}</span></div>', unsafe_allow_html=True)
+
+# ============================================
+# 🔍 DVSA INSPECTION (All roles)
+# ============================================
 elif page == "🔍 DVSA Inspection":
-    st.markdown("<h1>DVSA Walkaround</h1>", unsafe_allow_html=True)
+    st.markdown("<h1>🔍 DVSA Daily Walkaround</h1><p style='color:#94a3b8;'>Statutory safety inspection</p>", unsafe_allow_html=True); st.markdown("---")
     vehicles = db.query("SELECT reg FROM vehicles WHERE company_id = ?", params=(cid,))
-    if vehicles.empty: st.warning("No vehicles"); st.stop()
+    if vehicles.empty: st.warning("No vehicles registered"); st.stop()
     with st.form("insp"):
-        reg = st.selectbox("Vehicle", vehicles['reg'].tolist())
-        mileage = st.number_input("Mileage", min_value=0, step=1000)
-        st.markdown("### Checklist")
+        col_a, col_b = st.columns(2)
+        with col_a: reg = st.selectbox("Vehicle", vehicles['reg'].tolist())
+        with col_b: mileage = st.number_input("Mileage", min_value=0, step=1000)
+        st.markdown("### DVSA Checklist")
         checks = {}
         for cat, items in DVSA.items():
             st.markdown(f"**{cat}**"); cols = st.columns(3)
@@ -315,8 +482,8 @@ elif page == "🔍 DVSA Inspection":
             st.error(f"Defects: {', '.join(failed)}")
             notes = st.text_area("Description*", height=100)
             severity = st.selectbox("Severity*", ["Minor","Major - Workshop","Dangerous - VOR"])
-        sig = st.text_input("Signature*")
-        if st.form_submit_button("Submit", type="primary", use_container_width=True):
+        sig = st.text_input("Digital Signature*")
+        if st.form_submit_button("Submit Inspection", type="primary", use_container_width=True):
             if not ok and not notes: st.error("Description required")
             elif not sig: st.error("Signature required")
             else:
@@ -324,12 +491,18 @@ elif page == "🔍 DVSA Inspection":
                 conn = get_db()
                 conn.execute("INSERT INTO ops (time, reg, mileage, status, notes, driver, company_id) VALUES (?,?,?,?,?,?,?)", (datetime.now(), reg, mileage, status, notes or "Passed", st.session_state.user, cid))
                 conn.commit(); conn.close()
-                if ok: st.success("PASS!"); st.balloons()
-                else: st.warning("Defect logged")
+                if ok: st.success("✅ PASS!"); st.balloons()
+                else:
+                    if OPENAI_API_KEY and notes:
+                        with st.spinner("AI analysing..."): st.info(f"🤖 AI: {ai_assess(reg, ', '.join(failed), notes)}")
+                    st.warning("⚠️ Defect logged — workshop notified")
                 time.sleep(2); st.rerun()
 
+# ============================================
+# ⏱️ TACHO TIMER
+# ============================================
 elif page == "⏱️ Tacho Timer":
-    st.markdown("<h1>⏱️ Tacho Timer</h1>", unsafe_allow_html=True)
+    st.markdown("<h1>⏱️ Digital Tachograph</h1>", unsafe_allow_html=True); st.markdown("---")
     s = tacho.get_status()
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -346,30 +519,48 @@ elif page == "⏱️ Tacho Timer":
     cc1, cc2, cc3 = st.columns(3)
     with cc1:
         if not s['is_driving']:
-            if st.button("🟢 Start", type="primary", use_container_width=True): tacho.start_driving(); st.rerun()
+            if st.button("🟢 Start Driving", type="primary", use_container_width=True): tacho.start_driving(); st.rerun()
         else:
-            if st.button("🔴 Stop", use_container_width=True): tacho.stop_driving(); st.rerun()
+            if st.button("🔴 Stop Driving", use_container_width=True): tacho.stop_driving(); st.rerun()
     with cc2:
-        if st.button("☕ Break", use_container_width=True): tacho.stop_driving(); st.rerun()
+        if st.button("☕ Take Break", use_container_width=True): tacho.stop_driving(); st.rerun()
     with cc3:
-        if st.button("🌙 Reset", use_container_width=True): tacho.stop_driving(); st.session_state.tacho_driving = timedelta(0); st.rerun()
+        if st.button("🌙 End Day", use_container_width=True): tacho.stop_driving(); st.session_state.tacho_driving = timedelta(0); st.rerun()
 
+# ============================================
+# 📸 PHOTO EVIDENCE
+# ============================================
 elif page == "📸 Photo Evidence":
-    st.markdown("<h1>📸 Photo Evidence</h1>", unsafe_allow_html=True)
-    photo = st.camera_input("Take photo")
-    if photo and st.button("Save", type="primary"): st.success("Saved!")
+    st.markdown("<h1>📸 Photo Evidence</h1>", unsafe_allow_html=True); st.markdown("---")
+    photo = st.camera_input("Take defect photo")
+    desc = st.text_area("Description")
+    if photo and desc and st.button("Save Photo", type="primary"):
+        conn = get_db()
+        conn.execute("INSERT INTO ops (time, reg, mileage, status, notes, driver, company_id) VALUES (?,?,0,'PHOTO EVIDENCE',?,?,?)", (datetime.now(), 'N/A', desc, st.session_state.user, cid))
+        conn.commit(); conn.close()
+        st.success("✅ Photo evidence saved!")
 
+# ============================================
+# 🏆 DRIVER LEAGUE
+# ============================================
 elif page == "🏆 Driver League":
-    st.markdown("<h1>🏆 Driver League</h1>", unsafe_allow_html=True)
+    st.markdown("<h1>🏆 Driver Performance League</h1>", unsafe_allow_html=True); st.markdown("---")
     ops = db.query("SELECT * FROM ops WHERE company_id = ?", params=(cid,))
-    if len(ops) > 0:
-        drivers = ops['driver'].unique()
-        for d in drivers:
-            sc = FleetAnalytics.driver_scorecard(ops, d)
-            st.markdown(f'<div class="glass-card" style="margin-bottom:6px;padding:14px;"><b>{d}</b> — {sc["score"]}/100 | {sc["pass_rate"]}%</div>', unsafe_allow_html=True)
+    users = db.query("SELECT username, full_name FROM users WHERE company_id = ? AND role = 'driver'", params=(cid,))
+    if not users.empty and len(ops) > 0:
+        lb = FleetAnalytics.get_leaderboard(ops, users)
+        for d in lb:
+            icon = {1:'🥇',2:'🥈',3:'🥉'}.get(d['rank'], f"#{d['rank']}")
+            sc = '#10b981' if d['score']>75 else '#f59e0b' if d['score']>50 else '#ef4444'
+            st.markdown(f'<div class="glass-card" style="margin-bottom:6px;padding:14px;"><span style="font-size:1.3em;">{icon}</span> <b>{d["name"]}</b> — <span style="color:{sc};font-weight:700;">{d["score"]}/100</span> | {d["pass_rate"]}% pass | {d["trend"]}</div>', unsafe_allow_html=True)
+    else:
+        st.info("No driver data yet")
 
+# ============================================
+# 🗺️ LIVE MAP
+# ============================================
 elif page == "🗺️ Live Map":
-    st.markdown("<h1>Live Map</h1>", unsafe_allow_html=True)
+    st.markdown("<h1>🗺️ Live Fleet Map</h1>", unsafe_allow_html=True); st.markdown("---")
     vehicles = db.query("SELECT reg FROM vehicles WHERE company_id = ?", params=(cid,))
     if not vehicles.empty:
         pos = []
@@ -382,34 +573,110 @@ elif page == "🗺️ Live Map":
         fig.update_layout(mapbox=dict(style='carto-darkmatter', center=dict(lat=51.5, lon=-0.1), zoom=9), height=500, margin=dict(l=0,r=0,t=0,b=0))
         st.plotly_chart(fig, use_container_width=True)
 
+# ============================================
+# 📊 COMPLIANCE
+# ============================================
 elif page == "📊 Compliance":
-    st.markdown("<h1>Compliance</h1>", unsafe_allow_html=True)
+    st.markdown("<h1>📊 Compliance Hub</h1>", unsafe_allow_html=True); st.markdown("---")
     ops = db.query("SELECT * FROM ops WHERE company_id = ?", params=(cid,))
     if len(ops) > 0:
+        comp = FleetAnalytics.compliance_score(ops)
+        health = FleetAnalytics.health_score(ops)
+        c1, c2 = st.columns(2)
+        with c1: st.markdown(f'<div class="metric-card"><div class="metric-label">DVSA Compliance (30d)</div><div class="metric-value">{comp}%</div></div>', unsafe_allow_html=True)
+        with c2: st.markdown(f'<div class="metric-card"><div class="metric-label">Fleet Health</div><div class="metric-value">{health}%</div></div>', unsafe_allow_html=True)
         ops['date'] = pd.to_datetime(ops['time']).dt.date
         daily = ops.groupby('date').agg(pass_rate=('status', lambda x: (x=='PASS').mean()*100)).tail(30)
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=daily.index, y=daily['pass_rate'], mode='lines', line=dict(color='#3b82f6', width=3), fill='tozeroy'))
+        fig.add_hline(y=90, line_dash="dash", line_color="#ef4444")
         fig.update_layout(template='plotly_dark', height=400)
         st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("Start logging inspections to see compliance data")
 
+# ============================================
+# 🤖 AI ANALYSIS
+# ============================================
 elif page == "🤖 AI Analysis":
-    st.markdown("<h1>AI Analysis</h1>", unsafe_allow_html=True)
-    st.info("Select a vehicle and run AI analysis on defects.")
+    st.markdown("<h1>🤖 AI Analysis</h1>", unsafe_allow_html=True); st.markdown("---")
+    vehicles = db.query("SELECT reg FROM vehicles WHERE company_id = ?", params=(cid,))
+    if not vehicles.empty:
+        reg = st.selectbox("Select Vehicle", vehicles['reg'].tolist())
+        insp = db.query("SELECT * FROM ops WHERE reg = ? AND company_id = ? ORDER BY time DESC LIMIT 20", params=(reg, cid))
+        if len(insp) > 0:
+            defects = insp[insp['status']!='PASS']
+            if len(defects) > 0 and st.button("🤖 Run AI Analysis", type="primary"):
+                with st.spinner("AI analysing..."):
+                    st.info(ai_assess(reg, f"{len(defects)} defects found", "Full vehicle analysis requested"))
+            st.dataframe(insp, use_container_width=True)
 
+# ============================================
+# 📋 REPORTS
+# ============================================
 elif page == "📋 Reports":
-    st.markdown("<h1>Reports</h1>", unsafe_allow_html=True)
-    ops = db.query("SELECT * FROM ops WHERE company_id = ?", params=(cid,))
+    st.markdown("<h1>📋 Reports & Export</h1>", unsafe_allow_html=True); st.markdown("---")
+    ops = db.query("SELECT * FROM ops WHERE company_id = ? ORDER BY time DESC", params=(cid,))
     if not ops.empty:
         st.dataframe(ops, use_container_width=True)
-        st.download_button("📊 CSV", ops.to_csv(index=False), "report.csv")
+        csv = ops.to_csv(index=False)
+        st.download_button("📊 Download CSV Report", csv, f"fleet_report_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv")
+        
+        st.markdown("---")
+        st.markdown("### Filter by Vehicle")
+        vehicles = db.query("SELECT DISTINCT reg FROM ops WHERE company_id = ?", params=(cid,))
+        if not vehicles.empty:
+            selected_reg = st.selectbox("Select Vehicle", vehicles['reg'].tolist())
+            filtered = ops[ops['reg'] == selected_reg]
+            if not filtered.empty:
+                st.dataframe(filtered, use_container_width=True)
+                pdf = ReportGenerator.dvsa_report(selected_reg, filtered)
+                st.download_button("📄 Download DVSA PDF Report", pdf, f"DVSA_{selected_reg}.pdf", "application/pdf")
 
+# ============================================
+# ⚙️ SETTINGS
+# ============================================
 elif page == "⚙️ Settings":
-    st.markdown("<h1>Settings</h1>", unsafe_allow_html=True)
+    st.markdown("<h1>⚙️ Settings</h1>", unsafe_allow_html=True); st.markdown("---")
+    
+    st.markdown("### Change Password")
     with st.form("pwd"):
-        cur = st.text_input("Current", type="password"); new = st.text_input("New", type="password")
-        if st.form_submit_button("Update"):
-            if cur and new and len(new)>=8: st.success("Done!")
+        cur = st.text_input("Current Password", type="password")
+        new = st.text_input("New Password", type="password")
+        if st.form_submit_button("Update Password", type="primary"):
+            if cur and new and len(new)>=8:
+                conn = get_db()
+                row = conn.execute("SELECT password FROM users WHERE username = ? AND company_id = ?", (st.session_state.user, cid)).fetchone()
+                if row and SecurityEngine.verify_password(cur, row[0]):
+                    conn.execute("UPDATE users SET password = ? WHERE username = ? AND company_id = ?", (SecurityEngine.hash_password(new), st.session_state.user, cid))
+                    conn.commit()
+                    st.success("✅ Password updated!")
+                else:
+                    st.error("Current password incorrect")
+                conn.close()
+    
+    st.markdown("---")
+    st.markdown("### 👥 Add Team Members")
+    with st.form("add_team"):
+        col_a, col_b = st.columns(2)
+        with col_a:
+            new_user = st.text_input("Username*")
+            new_full = st.text_input("Full Name")
+        with col_b:
+            new_pass = st.text_input("Password*", type="password")
+            new_role = st.selectbox("Role*", ["driver", "workshop", "manager"])
+        if st.form_submit_button("Add Team Member", type="primary", use_container_width=True):
+            if new_user and new_pass and len(new_pass) >= 8:
+                try:
+                    conn = get_db()
+                    conn.execute("INSERT INTO users (username, password, role, full_name, company_id) VALUES (?,?,?,?,?)", (new_user, SecurityEngine.hash_password(new_pass), new_role, new_full, cid))
+                    conn.commit(); conn.close()
+                    st.success(f"✅ {new_role.upper()} {new_user} added!")
+                    st.rerun()
+                except:
+                    st.error("Username already exists")
+            else:
+                st.error("All fields required, password 8+ chars")
 
 st.markdown("---")
-st.markdown('<div style="text-align:center;color:#64748b;">🚛 FleetPro 365 Enterprise • DVSA Compliant</div>', unsafe_allow_html=True)
+st.markdown('<div style="text-align:center;color:#64748b;">🚛 FleetPro 365 Enterprise • DVSA Compliant • All Roles Supported</div>', unsafe_allow_html=True)
