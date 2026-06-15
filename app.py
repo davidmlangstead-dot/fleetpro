@@ -430,7 +430,9 @@ elif page=="🏆 Safety League":
     st.markdown("<h1>🏆 Safety League</h1>",unsafe_allow_html=True)
     nm=sq("SELECT reporter, COUNT(*) as reports FROM near_misses WHERE company_id=? GROUP BY reporter ORDER BY reports",(cid,))
     if not nm.empty:
-        for i,(_,r) in enumerate(nm.iterrows()):st.markdown(f'<div class="glass-card" style="margin-bottom:4px;padding:10px;">{{0:"🥇",1:"🥈",2:"🥉"}.get(i,f"#{i+1}")} <b>{r["reporter"]}</b> — {r["reports"]} reports</div>',unsafe_allow_html=True)
+        for i,(_,r) in enumerate(nm.iterrows()):
+            icon="🥇" if i==0 else "🥈" if i==1 else "🥉" if i==2 else f"#{i+1}"
+            st.markdown(f'<div class="glass-card" style="margin-bottom:4px;padding:10px;">{icon} <b>{r["reporter"]}</b> — {r["reports"]} reports</div>',unsafe_allow_html=True)
 
 elif page=="🎓 Training":
     st.markdown("<h1>🎓 Training</h1>",unsafe_allow_html=True)
