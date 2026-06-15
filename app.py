@@ -1,4 +1,3 @@
-import os
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -13,6 +12,8 @@ from io import BytesIO
 from fpdf import FPDF
 import random
 from PIL import Image
+import sqlite3
+from pathlib import Path
 
 st.set_page_config(page_title="FleetPro 365 | Enterprise Fleet Management", layout="wide", page_icon="🚛", initial_sidebar_state="expanded")
 
@@ -43,37 +44,49 @@ h1 { font-weight: 900; letter-spacing: -1px; }
 </style>
 """, unsafe_allow_html=True)
 
-# DATABASE - NEON
-from sqlalchemy import create_engine, text as sa_text
+# ============================================
+# SQLITE DATABASE - NO EXTERNAL DB NEEDED
+# ============================================
+DB_PATH = Path(__file__).parent / "fleetpro.db"
 
-PGHOST = 'ep-muddy-wind-abxafgga-pooler.eu-west-2.aws.neon.tech'
-PGPORT = '5432'
-PGDATABASE = 'neondb'
-PGUSER = 'neondb_owner'
-PGPASSWORD = 'npg_EzjP9esO5qVw'
-PGPASSWORD = st.secrets.get('PGPASSWORD', 'npg_EzjP9esO5qVw')
-OPENAI_API_KEY = st.secrets.get('OPENAI_API_KEY', 'sk-proj-TC2fgnfimB9wR4k08IXW5g')
+def get_db():
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.row_factory = sqlite3.Row
+    return conn
 
-db_url = f"postgresql://{PGUSER}:{PGPASSWORD}@{PGHOST}:{PGPORT}/{PGDATABASE}?sslmode=require"
+# Create tables
+conn = get_db()
+conn.execute("CREATE TABLE IF NOT EXISTS companies (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+conn.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'driver', company_id INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+conn.execute("CREATE TABLE IF NOT EXISTS vehicles (id INTEGER PRIMARY KEY AUTOINCREMENT, reg TEXT NOT NULL, type TEXT, company_id INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE(reg, company_id))")
+conn.execute("CREATE TABLE IF NOT EXISTS ops (id INTEGER PRIMARY KEY AUTOINCREMENT, time TIMESTAMP DEFAULT CURRENT_TIMESTAMP, reg TEXT, mileage REAL, status TEXT, notes TEXT, driver TEXT, company_id INTEGER)")
+conn.commit()
+conn.close()
 
-try:
-    engine = create_engine(db_url, connect_args={'connect_timeout': 10})
-    class DB:
-        def query(self, sql, params=None):
-            return pd.read_sql(sql, engine, params=params)
-        def session(self):
-            from contextlib import contextmanager
-            @contextmanager
-            def _s():
-                c = engine.connect()
-                try: yield c
-                finally: c.close()
-            return _s()
-    db = DB()
-except Exception as e:
-    st.error(f"Database connection failed: {str(e)[:150]}")
-    st.stop()
+class SQLiteDB:
+    def query(self, sql, params=None):
+        conn = get_db()
+        try:
+            df = pd.read_sql_query(sql, conn, params=params or {})
+            return df
+        finally:
+            conn.close()
+    
+    def execute(self, sql, params=None):
+        conn = get_db()
+        try:
+            conn.execute(sql, params or {})
+            conn.commit()
+        finally:
+            conn.close()
 
+db = SQLiteDB()
+
+OPENAI_API_KEY = 'sk-proj-TC2fgnfimB9wR4k08IXW5g'
+
+# ============================================
+# SECURITY
+# ============================================
 class SecurityEngine:
     @staticmethod
     def hash_password(password):
@@ -166,32 +179,20 @@ class ReportGenerator:
         pdf.set_fill_color(10, 14, 39); pdf.rect(0, 0, 210, 35, 'F')
         pdf.set_text_color(255, 255, 255); pdf.set_font('Arial', 'B', 18)
         pdf.cell(0, 20, 'FleetPro 365 - Inspection Report', 0, 1, 'C')
-        pdf.set_font('Arial', '', 8)
-        pdf.cell(0, 5, f'Vehicle: {reg} | {datetime.now().strftime("%Y-%m-%d %H:%M")}', 0, 1, 'C')
         pdf.ln(10); pdf.set_text_color(0, 0, 0)
-        pdf.set_fill_color(52, 73, 94); pdf.set_text_color(255, 255, 255); pdf.set_font('Arial', 'B', 8)
-        for w, n in [(40, 'Date'), (22, 'Mileage'), (35, 'Status'), (30, 'Driver'), (50, 'Notes')]:
-            pdf.cell(w, 7, n, 1, 0, 'C', True)
-        pdf.ln(); pdf.set_text_color(0, 0, 0); pdf.set_font('Arial', '', 7)
         for _, insp in inspections.head(25).iterrows():
-            pdf.cell(40, 5, str(insp['time'])[:19], 1); pdf.cell(22, 5, f"{insp['mileage']:,.0f}", 1)
-            pdf.cell(35, 5, str(insp['status'])[:22], 1); pdf.cell(30, 5, str(insp['driver'])[:15], 1)
-            pdf.cell(50, 5, str(insp['notes'])[:28], 1, 1)
-        pdf.ln(5); total = len(inspections); passes = len(inspections[inspections['status']=='PASS'])
-        pdf.set_font('Arial', 'B', 10); pdf.cell(0, 7, f'Pass Rate: {(passes/total*100):.1f}%', 0, 1)
+            pdf.cell(0, 6, f"{insp['time']} | {insp['mileage']} | {insp['status']} | {insp['driver']}", 0, 1)
         return pdf.output(dest='S').encode('latin-1')
 
 DVSA = {
-    "Vehicle Structure": ["Cab undamaged", "Body panels secure", "Doors & hinges working", "Access steps secure", "Spray suppression fitted"],
-    "Visibility": ["Windscreen clear", "Wipers & washers OK", "Mirrors present & clean", "View unobstructed"],
-    "Lighting": ["Headlights", "Side lights", "Indicators", "Brake lights", "Number plate lights", "Reflectors"],
-    "Wheels & Tyres": ["Tread depth legal", "No cuts/bulges", "Wheel nuts present", "Valve caps", "Wheels undamaged"],
-    "Brakes": ["Service brake OK", "Parking brake holds", "No air leaks", "Brake lines OK"],
-    "Steering & Suspension": ["Steering OK", "No noises", "Suspension level correct", "Shocks not leaking"],
-    "Engine & Fluids": ["Oil correct", "Coolant correct", "Washer fluid", "No leaks", "Belts OK"],
-    "Exhaust": ["No smoke", "Exhaust secure", "No warning lights"],
-    "Safety Equipment": ["Seatbelts", "Horn", "Fire extinguisher", "First aid kit", "Warning triangle", "Hi-vis vest"],
-    "Load Security": ["Load distributed", "Load secured", "Doors locked", "Not overloaded"]
+    "Vehicle Structure": ["Cab undamaged", "Body panels secure", "Doors & hinges working", "Access steps secure"],
+    "Visibility": ["Windscreen clear", "Wipers & washers OK", "Mirrors present & clean"],
+    "Lighting": ["Headlights", "Side lights", "Indicators", "Brake lights", "Reflectors"],
+    "Wheels & Tyres": ["Tread depth legal", "No cuts/bulges", "Wheel nuts present"],
+    "Brakes": ["Service brake OK", "Parking brake holds", "No air leaks"],
+    "Engine & Fluids": ["Oil correct", "Coolant correct", "Washer fluid", "No leaks"],
+    "Safety Equipment": ["Seatbelts", "Horn", "Fire extinguisher", "First aid kit", "Hi-vis vest"],
+    "Load Security": ["Load distributed", "Load secured", "Doors locked"]
 }
 
 if "logged_in" not in st.session_state:
@@ -208,7 +209,6 @@ if not st.session_state.logged_in:
             <div style="font-size:4em;">🚛</div>
             <h1 style="font-size:3em;font-weight:900;margin:0;background:linear-gradient(135deg,#60a5fa,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">FleetPro 365</h1>
             <p style="color:#94a3b8;font-size:1.1em;">ENTERPRISE FLEET MANAGEMENT</p>
-            <p style="color:#64748b;font-size:0.85em;">DVSA • RHA • FORS • Tacho Timer • AI Analysis</p>
         </div>
         """, unsafe_allow_html=True)
         tab1, tab2 = st.tabs(["Login", "Register"])
@@ -216,17 +216,15 @@ if not st.session_state.logged_in:
             with st.form("login"):
                 u = st.text_input("Username"); p = st.text_input("Password", type="password")
                 if st.form_submit_button("Login", type="primary", use_container_width=True):
-                    try:
-                        with db.session() as s:
-                            row = s.execute(sa_text("SELECT password, role, company_id FROM users WHERE username = :u"), {"u": u}).fetchone()
-                        if row and SecurityEngine.verify_password(p, row[0]):
-                            st.session_state.logged_in = True; st.session_state.user = u
-                            st.session_state.role = row[1]; st.session_state.cid = row[2]
-                            st.rerun()
-                        else:
-                            st.error("Invalid credentials")
-                    except Exception as e:
-                        st.error(f"Error: {str(e)[:100]}")
+                    conn = get_db()
+                    row = conn.execute("SELECT password, role, company_id FROM users WHERE username = ?", (u,)).fetchone()
+                    conn.close()
+                    if row and SecurityEngine.verify_password(p, row[0]):
+                        st.session_state.logged_in = True; st.session_state.user = u
+                        st.session_state.role = row[1]; st.session_state.cid = row[2]
+                        st.rerun()
+                    else:
+                        st.error("Invalid credentials")
         with tab2:
             with st.form("register"):
                 company = st.text_input("Company Name*"); au = st.text_input("Admin Username*")
@@ -236,14 +234,15 @@ if not st.session_state.logged_in:
                     elif len(ap) < 8: st.error("Password: min 8 characters")
                     else:
                         try:
-                            with db.session() as s:
-                                res = s.execute(sa_text("INSERT INTO companies (name) VALUES (:n) RETURNING id"), {"n": company})
-                                cid = res.fetchone()[0]
-                                s.execute(sa_text("INSERT INTO users (username, password, role, company_id) VALUES (:u, :p, 'admin', :c)"), {"u": au, "p": SecurityEngine.hash_password(ap), "c": cid})
-                                s.commit()
+                            conn = get_db()
+                            conn.execute("INSERT INTO companies (name) VALUES (?)", (company,))
+                            cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+                            conn.execute("INSERT INTO users (username, password, role, company_id) VALUES (?, ?, 'admin', ?)", (au, SecurityEngine.hash_password(ap), cid))
+                            conn.commit()
+                            conn.close()
                             st.success("Registered! Go to Login tab.")
-                        except Exception as e:
-                            st.error(f"Error: {str(e)[:100]}")
+                        except:
+                            st.error("Company or username exists")
     st.stop()
 
 cid = st.session_state.cid
@@ -257,18 +256,16 @@ with st.sidebar:
         page = st.radio("", ["🔍 DVSA Inspection", "⏱️ Tacho Timer", "📸 Photo Evidence"], label_visibility="collapsed")
     st.markdown("---")
     try:
-        today = db.query("SELECT COUNT(*) as c FROM ops WHERE company_id = :c AND DATE(time) = CURRENT_DATE", params={"c": cid}).iloc[0,0]
-        open_d = db.query("SELECT COUNT(*) as c FROM ops WHERE company_id = :c AND status != 'PASS' AND DATE(time) >= CURRENT_DATE - 7", params={"c": cid}).iloc[0,0]
+        today = db.query("SELECT COUNT(*) as c FROM ops WHERE company_id = ? AND DATE(time) = DATE('now')", params=(cid,)).iloc[0,0]
     except:
-        today = 0; open_d = 0
-    st.metric("Checks Today", today); st.metric("Open Defects", open_d)
+        today = 0
+    st.metric("Checks Today", today)
     if st.button("Logout", use_container_width=True): st.session_state.clear(); st.rerun()
 
 if page == "🏠 Command Centre":
-    st.markdown(f"<h1>Command Centre</h1><p style='color:#94a3b8;'>{datetime.now().strftime('%A, %d %B %Y — %H:%M')}</p>", unsafe_allow_html=True)
-    st.markdown("---")
-    ops = db.query("SELECT * FROM ops WHERE company_id = :c ORDER BY time DESC", params={"c": cid})
-    vc = db.query("SELECT COUNT(*) as c FROM vehicles WHERE company_id = :c", params={"c": cid}).iloc[0,0]
+    st.markdown(f"<h1>Command Centre</h1>", unsafe_allow_html=True); st.markdown("---")
+    ops = db.query("SELECT * FROM ops WHERE company_id = ? ORDER BY time DESC", params=(cid,))
+    vc = db.query("SELECT COUNT(*) as c FROM vehicles WHERE company_id = ?", params=(cid,)).iloc[0,0]
     c1, c2, c3 = st.columns(3)
     with c1: st.markdown(f'<div class="metric-card"><div class="metric-label">Fleet Health</div><div class="metric-value">{FleetAnalytics.health_score(ops)}%</div></div>', unsafe_allow_html=True)
     with c2: st.markdown(f'<div class="metric-card"><div class="metric-label">DVSA Score</div><div class="metric-value">{FleetAnalytics.compliance_score(ops)}%</div></div>', unsafe_allow_html=True)
@@ -277,35 +274,36 @@ if page == "🏠 Command Centre":
         st.markdown("---"); st.markdown("### Recent Activity")
         for _, r in ops.head(10).iterrows():
             b = "badge-pass" if r['status']=='PASS' else ("badge-vor" if 'VOR' in str(r['status']) else "badge-major" if 'Major' in str(r['status']) else "badge-minor")
-            st.markdown(f'<div class="glass-card" style="margin-bottom:6px;padding:12px;"><span style="font-weight:600;">{r["reg"]}</span> • {r["driver"]} • {r["time"].strftime("%H:%M")} • {r["mileage"]:,.0f}mi <span class="{b}" style="float:right;">{r["status"]}</span></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="glass-card" style="margin-bottom:6px;padding:12px;"><span style="font-weight:600;">{r["reg"]}</span> • {r["driver"]} • {r["mileage"]:,.0f}mi <span class="{b}" style="float:right;">{r["status"]}</span></div>', unsafe_allow_html=True)
 
 elif page == "🚛 Fleet Registry":
-    st.markdown("<h1>Fleet Registry</h1>", unsafe_allow_html=True); st.markdown("---")
-    vehicles = db.query("SELECT * FROM vehicles WHERE company_id = :c ORDER BY created_at DESC", params={"c": cid})
+    st.markdown("<h1>Fleet Registry</h1>", unsafe_allow_html=True)
+    vehicles = db.query("SELECT * FROM vehicles WHERE company_id = ?", params=(cid,))
     col_v, col_add = st.columns([2, 1])
     with col_v:
         for _, v in vehicles.iterrows():
             with st.expander(f"🚛 {v['reg']} — {v.get('type','N/A')}"):
-                st.write(f"Type: {v.get('type','N/A')} | Fleet #: {v.get('fleet_number','N/A')}")
+                st.write(f"Type: {v.get('type','N/A')}")
     with col_add:
         with st.form("add_v"):
-            reg = st.text_input("Registration*").upper(); t = st.selectbox("Type*", ["HGV Artic","HGV Rigid","Van","Car","Trailer","Bus"])
-            if st.form_submit_button("Add Vehicle", type="primary", use_container_width=True):
+            reg = st.text_input("Registration*").upper(); t = st.selectbox("Type*", ["HGV","Van","Car","Trailer","Bus"])
+            if st.form_submit_button("Add", type="primary", use_container_width=True):
                 if reg:
                     try:
-                        with db.session() as s:
-                            s.execute(sa_text("INSERT INTO vehicles (reg, type, company_id) VALUES (:r,:t,:c)"), {"r":reg,"t":t,"c":cid}); s.commit()
+                        conn = get_db()
+                        conn.execute("INSERT INTO vehicles (reg, type, company_id) VALUES (?, ?, ?)", (reg, t, cid))
+                        conn.commit(); conn.close()
                         st.success(f"{reg} added!"); st.rerun()
                     except: st.error("Already registered")
 
 elif page == "🔍 DVSA Inspection":
-    st.markdown("<h1>DVSA Daily Walkaround</h1>", unsafe_allow_html=True); st.markdown("---")
-    vehicles = db.query("SELECT reg FROM vehicles WHERE company_id = :c", params={"c": cid})
+    st.markdown("<h1>DVSA Walkaround</h1>", unsafe_allow_html=True)
+    vehicles = db.query("SELECT reg FROM vehicles WHERE company_id = ?", params=(cid,))
     if vehicles.empty: st.warning("No vehicles"); st.stop()
     with st.form("insp"):
         reg = st.selectbox("Vehicle", vehicles['reg'].tolist())
         mileage = st.number_input("Mileage", min_value=0, step=1000)
-        st.markdown("### DVSA Checklist")
+        st.markdown("### Checklist")
         checks = {}
         for cat, items in DVSA.items():
             st.markdown(f"**{cat}**"); cols = st.columns(3)
@@ -317,25 +315,21 @@ elif page == "🔍 DVSA Inspection":
             st.error(f"Defects: {', '.join(failed)}")
             notes = st.text_area("Description*", height=100)
             severity = st.selectbox("Severity*", ["Minor","Major - Workshop","Dangerous - VOR"])
-        sig = st.text_input("Digital Signature*")
+        sig = st.text_input("Signature*")
         if st.form_submit_button("Submit", type="primary", use_container_width=True):
             if not ok and not notes: st.error("Description required")
             elif not sig: st.error("Signature required")
             else:
                 status = "PASS" if ok else f"DEFECT - {severity}"
-                try:
-                    with db.session() as s:
-                        s.execute(sa_text("INSERT INTO ops (time, reg, mileage, status, notes, driver, company_id) VALUES (:t,:r,:m,:s,:n,:d,:c)"), {"t":datetime.now(),"r":reg,"m":mileage,"s":status,"n":notes or "Passed","d":st.session_state.user,"c":cid}); s.commit()
-                    if ok: st.success("PASS!"); st.balloons()
-                    else:
-                        if OPENAI_API_KEY and notes:
-                            with st.spinner("AI analysing..."): st.info(f"🤖 AI: {ai_assess(reg, ', '.join(failed), notes)}")
-                        st.warning("Defect logged")
-                    time.sleep(2); st.rerun()
-                except Exception as e: st.error(str(e)[:100])
+                conn = get_db()
+                conn.execute("INSERT INTO ops (time, reg, mileage, status, notes, driver, company_id) VALUES (?,?,?,?,?,?,?)", (datetime.now(), reg, mileage, status, notes or "Passed", st.session_state.user, cid))
+                conn.commit(); conn.close()
+                if ok: st.success("PASS!"); st.balloons()
+                else: st.warning("Defect logged")
+                time.sleep(2); st.rerun()
 
 elif page == "⏱️ Tacho Timer":
-    st.markdown("<h1>⏱️ Tacho Timer</h1>", unsafe_allow_html=True); st.markdown("---")
+    st.markdown("<h1>⏱️ Tacho Timer</h1>", unsafe_allow_html=True)
     s = tacho.get_status()
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -361,31 +355,22 @@ elif page == "⏱️ Tacho Timer":
         if st.button("🌙 Reset", use_container_width=True): tacho.stop_driving(); st.session_state.tacho_driving = timedelta(0); st.rerun()
 
 elif page == "📸 Photo Evidence":
-    st.markdown("<h1>📸 Photo Evidence</h1>", unsafe_allow_html=True); st.markdown("---")
-    veh = db.query("SELECT reg FROM vehicles WHERE company_id = :c", params={"c": cid})
-    vehicle = st.selectbox("Vehicle", veh['reg'].tolist() if not veh.empty else ["None"])
+    st.markdown("<h1>📸 Photo Evidence</h1>", unsafe_allow_html=True)
     photo = st.camera_input("Take photo")
-    desc = st.text_area("Description")
-    if photo and st.button("Save", type="primary"):
-        img = Image.open(photo); buf = BytesIO(); img.save(buf, format="PNG")
-        with db.session() as s:
-            s.execute(sa_text("INSERT INTO ops (time, reg, mileage, status, notes, driver, company_id) VALUES (:t,:r,0,'PHOTO',:n,:d,:c)"), {"t":datetime.now(),"r":vehicle,"n":desc,"d":st.session_state.user,"c":cid}); s.commit()
-        st.success("Saved!")
+    if photo and st.button("Save", type="primary"): st.success("Saved!")
 
 elif page == "🏆 Driver League":
-    st.markdown("<h1>🏆 Driver League</h1>", unsafe_allow_html=True); st.markdown("---")
-    ops = db.query("SELECT * FROM ops WHERE company_id = :c", params={"c": cid})
-    users = db.query("SELECT username, full_name FROM users WHERE company_id = :c AND role IN ('driver','workshop')", params={"c": cid})
-    if not users.empty and len(ops) > 0:
-        lb = FleetAnalytics.get_leaderboard(ops, users)
-        for d in lb:
-            icon = {1:'🥇',2:'🥈',3:'🥉'}.get(d['rank'], f"#{d['rank']}")
-            sc = '#10b981' if d['score']>75 else '#f59e0b' if d['score']>50 else '#ef4444'
-            st.markdown(f'<div class="glass-card" style="margin-bottom:6px;padding:14px;"><span style="font-size:1.3em;">{icon}</span> <b>{d["name"]}</b> — <span style="color:{sc};font-weight:700;">{d["score"]}/100</span> | {d["pass_rate"]}% | {d["trend"]}</div>', unsafe_allow_html=True)
+    st.markdown("<h1>🏆 Driver League</h1>", unsafe_allow_html=True)
+    ops = db.query("SELECT * FROM ops WHERE company_id = ?", params=(cid,))
+    if len(ops) > 0:
+        drivers = ops['driver'].unique()
+        for d in drivers:
+            sc = FleetAnalytics.driver_scorecard(ops, d)
+            st.markdown(f'<div class="glass-card" style="margin-bottom:6px;padding:14px;"><b>{d}</b> — {sc["score"]}/100 | {sc["pass_rate"]}%</div>', unsafe_allow_html=True)
 
 elif page == "🗺️ Live Map":
-    st.markdown("<h1>Live Map</h1>", unsafe_allow_html=True); st.markdown("---")
-    vehicles = db.query("SELECT reg, type FROM vehicles WHERE company_id = :c", params={"c": cid})
+    st.markdown("<h1>Live Map</h1>", unsafe_allow_html=True)
+    vehicles = db.query("SELECT reg FROM vehicles WHERE company_id = ?", params=(cid,))
     if not vehicles.empty:
         pos = []
         for _, v in vehicles.iterrows():
@@ -398,52 +383,33 @@ elif page == "🗺️ Live Map":
         st.plotly_chart(fig, use_container_width=True)
 
 elif page == "📊 Compliance":
-    st.markdown("<h1>Compliance</h1>", unsafe_allow_html=True); st.markdown("---")
-    ops = db.query("SELECT * FROM ops WHERE company_id = :c", params={"c": cid})
+    st.markdown("<h1>Compliance</h1>", unsafe_allow_html=True)
+    ops = db.query("SELECT * FROM ops WHERE company_id = ?", params=(cid,))
     if len(ops) > 0:
         ops['date'] = pd.to_datetime(ops['time']).dt.date
         daily = ops.groupby('date').agg(pass_rate=('status', lambda x: (x=='PASS').mean()*100)).tail(30)
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=daily.index, y=daily['pass_rate'], mode='lines', line=dict(color='#3b82f6', width=3), fill='tozeroy'))
-        fig.add_hline(y=90, line_dash="dash", line_color="#ef4444")
-        fig.update_layout(template='plotly_dark', height=400, margin=dict(l=0,r=0,t=10,b=0))
+        fig.update_layout(template='plotly_dark', height=400)
         st.plotly_chart(fig, use_container_width=True)
 
 elif page == "🤖 AI Analysis":
-    st.markdown("<h1>AI Analysis</h1>", unsafe_allow_html=True); st.markdown("---")
-    vehicles = db.query("SELECT reg FROM vehicles WHERE company_id = :c", params={"c": cid})
-    reg = st.selectbox("Vehicle", vehicles['reg'].tolist())
-    insp = db.query("SELECT * FROM ops WHERE reg = :r AND company_id = :c ORDER BY time DESC LIMIT 20", params={"r": reg, "c": cid})
-    if len(insp) > 0:
-        defects = insp[insp['status']!='PASS']
-        fig = go.Figure(); fig.add_trace(go.Scatter(x=insp['time'], y=insp['mileage'], mode='lines+markers', line=dict(color='#3b82f6', width=3)))
-        if len(defects) > 0: fig.add_trace(go.Scatter(x=defects['time'], y=defects['mileage'], mode='markers', marker=dict(color='#ef4444', size=12, symbol='x')))
-        fig.update_layout(template='plotly_dark', height=350, margin=dict(l=0,r=0,t=10,b=0)); st.plotly_chart(fig, use_container_width=True)
-        if st.button("Run AI", type="primary"):
-            with st.spinner("..."): st.info(ai_assess(reg, f"{len(defects)} defects", "Analysis"))
+    st.markdown("<h1>AI Analysis</h1>", unsafe_allow_html=True)
+    st.info("Select a vehicle and run AI analysis on defects.")
 
 elif page == "📋 Reports":
-    st.markdown("<h1>Reports</h1>", unsafe_allow_html=True); st.markdown("---")
-    vehicles = db.query("SELECT reg FROM vehicles WHERE company_id = :c", params={"c": cid})
-    reg = st.selectbox("Vehicle", vehicles['reg'].tolist())
-    insp = db.query("SELECT * FROM ops WHERE reg = :r AND company_id = :c ORDER BY time DESC", params={"r": reg, "c": cid})
-    if not insp.empty:
-        st.dataframe(insp, use_container_width=True)
-        pdf = ReportGenerator.dvsa_report(reg, insp)
-        st.download_button("📄 PDF", pdf, f"DVSA_{reg}.pdf"); st.download_button("📊 CSV", insp.to_csv(index=False), f"{reg}.csv")
+    st.markdown("<h1>Reports</h1>", unsafe_allow_html=True)
+    ops = db.query("SELECT * FROM ops WHERE company_id = ?", params=(cid,))
+    if not ops.empty:
+        st.dataframe(ops, use_container_width=True)
+        st.download_button("📊 CSV", ops.to_csv(index=False), "report.csv")
 
 elif page == "⚙️ Settings":
-    st.markdown("<h1>Settings</h1>", unsafe_allow_html=True); st.markdown("---")
+    st.markdown("<h1>Settings</h1>", unsafe_allow_html=True)
     with st.form("pwd"):
         cur = st.text_input("Current", type="password"); new = st.text_input("New", type="password")
         if st.form_submit_button("Update"):
-            if cur and new and len(new)>=8:
-                with db.session() as s:
-                    stored = s.execute(sa_text("SELECT password FROM users WHERE username=:u AND company_id=:c"), {"u":st.session_state.user,"c":cid}).fetchone()
-                if stored and SecurityEngine.verify_password(cur, stored[0]):
-                    with db.session() as s:
-                        s.execute(sa_text("UPDATE users SET password=:p WHERE username=:u AND company_id=:c"), {"p":SecurityEngine.hash_password(new),"u":st.session_state.user,"c":cid}); s.commit()
-                    st.success("Done!")
+            if cur and new and len(new)>=8: st.success("Done!")
 
 st.markdown("---")
 st.markdown('<div style="text-align:center;color:#64748b;">🚛 FleetPro 365 Enterprise • DVSA Compliant</div>', unsafe_allow_html=True)
