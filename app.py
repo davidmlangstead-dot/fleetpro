@@ -43,16 +43,14 @@ h1 { font-weight: 900; letter-spacing: -1px; }
 </style>
 """, unsafe_allow_html=True)
 
-# ============================================
-# DATABASE - USES STREAMLIT SECRETS
-# ============================================
+# DATABASE - NEON
 from sqlalchemy import create_engine, text as sa_text
 
-PGHOST = st.secrets.get('PGHOST', 'aws-0-eu-west-2.pooler.supabase.com')
-PGPORT = st.secrets.get('PGPORT', '6543')
-PGDATABASE = st.secrets.get('PGDATABASE', 'postgres')
-PGUSER = st.secrets.get('PGUSER', 'postgres.ykpbbeurorjnzbbggfif')
-PGPASSWORD = st.secrets.get('PGPASSWORD', 'FleetPro2024!')
+PGHOST = st.secrets.get('PGHOST', 'ep-muddy-wind-abxafgga-pooler.eu-west-2.aws.neon.tech')
+PGPORT = st.secrets.get('PGPORT', '5432')
+PGDATABASE = st.secrets.get('PGDATABASE', 'neondb')
+PGUSER = st.secrets.get('PGUSER', 'neondb_owner')
+PGPASSWORD = st.secrets.get('PGPASSWORD', 'npg_EzjP9esO5qVw')
 OPENAI_API_KEY = st.secrets.get('OPENAI_API_KEY', 'sk-proj-TC2fgnfimB9wR4k08IXW5g')
 
 db_url = f"postgresql://{PGUSER}:{PGPASSWORD}@{PGHOST}:{PGPORT}/{PGDATABASE}?sslmode=require"
@@ -75,9 +73,6 @@ except Exception as e:
     st.error(f"Database connection failed: {str(e)[:150]}")
     st.stop()
 
-# ============================================
-# SECURITY
-# ============================================
 class SecurityEngine:
     @staticmethod
     def hash_password(password):
@@ -91,9 +86,6 @@ class SecurityEngine:
         except:
             return False
 
-# ============================================
-# AI
-# ============================================
 def ai_assess(vehicle, defects, notes):
     if not OPENAI_API_KEY: return "AI offline"
     try:
@@ -107,9 +99,6 @@ def ai_assess(vehicle, defects, notes):
     except:
         return "AI unavailable"
 
-# ============================================
-# ANALYTICS
-# ============================================
 class FleetAnalytics:
     @staticmethod
     def health_score(df):
@@ -147,9 +136,6 @@ class FleetAnalytics:
         random.seed(hash(reg) % 100000)
         return {'lat': 51.3 + random.uniform(-1, 1), 'lon': -0.5 + random.uniform(-1.2, 1.2), 'speed': random.randint(0, 70), 'status': random.choice(['Moving','Idle','Parked'])}
 
-# ============================================
-# TACHO
-# ============================================
 class TachoEngine:
     def __init__(self):
         if 'tacho_start' not in st.session_state: st.session_state.tacho_start = None
@@ -172,9 +158,6 @@ class TachoEngine:
         elif time_left < timedelta(minutes=15): warning = f"BREAK in {int(time_left.total_seconds()//60)}min"
         return {'total_today': total, 'time_until_break': max(timedelta(0), time_left), 'day_remaining': max(timedelta(0), day_left), 'warning': warning, 'is_driving': st.session_state.tacho_start is not None, 'break_needed': time_left <= timedelta(minutes=30)}
 
-# ============================================
-# REPORT
-# ============================================
 class ReportGenerator:
     @staticmethod
     def dvsa_report(reg, inspections):
@@ -197,9 +180,6 @@ class ReportGenerator:
         pdf.set_font('Arial', 'B', 10); pdf.cell(0, 7, f'Pass Rate: {(passes/total*100):.1f}%', 0, 1)
         return pdf.output(dest='S').encode('latin-1')
 
-# ============================================
-# CHECKLIST
-# ============================================
 DVSA = {
     "Vehicle Structure": ["Cab undamaged", "Body panels secure", "Doors & hinges working", "Access steps secure", "Spray suppression fitted"],
     "Visibility": ["Windscreen clear", "Wipers & washers OK", "Mirrors present & clean", "View unobstructed"],
@@ -213,17 +193,11 @@ DVSA = {
     "Load Security": ["Load distributed", "Load secured", "Doors locked", "Not overloaded"]
 }
 
-# ============================================
-# SESSION
-# ============================================
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False; st.session_state.user = None; st.session_state.role = None; st.session_state.cid = None
 
 tacho = TachoEngine()
 
-# ============================================
-# AUTH
-# ============================================
 if not st.session_state.logged_in:
     col1, col2, col3 = st.columns([1, 2.5, 1])
     with col2:
@@ -271,20 +245,15 @@ if not st.session_state.logged_in:
                             st.error(f"Error: {str(e)[:100]}")
     st.stop()
 
-# ============================================
-# MAIN APP
-# ============================================
 cid = st.session_state.cid
 
 with st.sidebar:
     st.markdown('<div style="text-align:center;"><h3 style="font-weight:900;background:linear-gradient(135deg,#60a5fa,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">🚛 FleetPro 365</h3></div>', unsafe_allow_html=True)
     st.markdown(f"**{st.session_state.user}** ({st.session_state.role.upper()})")
-    
     if st.session_state.role == "admin":
         page = st.radio("", ["🏠 Command Centre", "🚛 Fleet Registry", "🔍 DVSA Inspection", "⏱️ Tacho Timer", "📸 Photo Evidence", "🏆 Driver League", "🗺️ Live Map", "📊 Compliance", "🤖 AI Analysis", "📋 Reports", "⚙️ Settings"], label_visibility="collapsed")
     else:
         page = st.radio("", ["🔍 DVSA Inspection", "⏱️ Tacho Timer", "📸 Photo Evidence"], label_visibility="collapsed")
-    
     st.markdown("---")
     try:
         today = db.query("SELECT COUNT(*) as c FROM ops WHERE company_id = :c AND DATE(time) = CURRENT_DATE", params={"c": cid}).iloc[0,0]
@@ -294,9 +263,6 @@ with st.sidebar:
     st.metric("Checks Today", today); st.metric("Open Defects", open_d)
     if st.button("Logout", use_container_width=True): st.session_state.clear(); st.rerun()
 
-# ============================================
-# PAGES
-# ============================================
 if page == "🏠 Command Centre":
     st.markdown(f"<h1>Command Centre</h1><p style='color:#94a3b8;'>{datetime.now().strftime('%A, %d %B %Y — %H:%M')}</p>", unsafe_allow_html=True)
     st.markdown("---")
