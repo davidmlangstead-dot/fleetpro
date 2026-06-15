@@ -44,14 +44,14 @@ h1 { font-weight: 900; letter-spacing: -1px; }
 """, unsafe_allow_html=True)
 
 # ============================================
-# DATABASE
+# DATABASE - POOLER CONNECTION
 # ============================================
 from sqlalchemy import create_engine, text as sa_text
 
-PGHOST = os.environ.get('PGHOST', 'db.ykpbbeurorjnzbbggfif.supabase.co')
-PGPORT = os.environ.get('PGPORT', '5432')
+PGHOST = os.environ.get('PGHOST', 'aws-0-eu-west-2.pooler.supabase.com')
+PGPORT = os.environ.get('PGPORT', '6543')
 PGDATABASE = os.environ.get('PGDATABASE', 'postgres')
-PGUSER = os.environ.get('PGUSER', 'postgres')
+PGUSER = os.environ.get('PGUSER', 'postgres.ykpbbeurorjnzbbggfif')
 PGPASSWORD = os.environ.get('PGPASSWORD', 'FleetPro2024!')
 OPENAI_API_KEY = 'sk-proj-TC2fgnfimB9wR4k08IXW5g'
 
