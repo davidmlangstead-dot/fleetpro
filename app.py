@@ -44,16 +44,16 @@ h1 { font-weight: 900; letter-spacing: -1px; }
 """, unsafe_allow_html=True)
 
 # ============================================
-# DATABASE
+# DATABASE - USES STREAMLIT SECRETS
 # ============================================
 from sqlalchemy import create_engine, text as sa_text
 
-PGHOST = os.environ.get('PGHOST', 'aws-0-eu-west-2.pooler.supabase.com')
-PGPORT = os.environ.get('PGPORT', '6543')
-PGDATABASE = os.environ.get('PGDATABASE', 'postgres')
-PGUSER = os.environ.get('PGUSER', 'postgres.ykpbbeurorjnzbbggfif')
-PGPASSWORD = os.environ.get('PGPASSWORD', 'FleetPro2024!')
-OPENAI_API_KEY = 'sk-proj-TC2fgnfimB9wR4k08IXW5g'
+PGHOST = st.secrets.get('PGHOST', 'aws-0-eu-west-2.pooler.supabase.com')
+PGPORT = st.secrets.get('PGPORT', '6543')
+PGDATABASE = st.secrets.get('PGDATABASE', 'postgres')
+PGUSER = st.secrets.get('PGUSER', 'postgres.ykpbbeurorjnzbbggfif')
+PGPASSWORD = st.secrets.get('PGPASSWORD', 'FleetPro2024!')
+OPENAI_API_KEY = st.secrets.get('OPENAI_API_KEY', 'sk-proj-TC2fgnfimB9wR4k08IXW5g')
 
 db_url = f"postgresql://{PGUSER}:{PGPASSWORD}@{PGHOST}:{PGPORT}/{PGDATABASE}?sslmode=require"
 
