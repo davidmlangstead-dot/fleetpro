@@ -44,7 +44,7 @@ h1 { font-weight: 900; letter-spacing: -1px; }
 """, unsafe_allow_html=True)
 
 # ============================================
-# DATABASE - DIRECT CONNECTION
+# DATABASE
 # ============================================
 from sqlalchemy import create_engine, text as sa_text
 
@@ -55,10 +55,10 @@ PGUSER = os.environ.get('PGUSER', 'postgres')
 PGPASSWORD = os.environ.get('PGPASSWORD', 'FleetPro2024!')
 OPENAI_API_KEY = 'sk-proj-TC2fgnfimB9wR4k08IXW5g'
 
-db_url = f"postgresql://{PGUSER}:{PGPASSWORD}@{PGHOST}:{PGPORT}/{PGDATABASE}"
+db_url = f"postgresql://{PGUSER}:{PGPASSWORD}@{PGHOST}:{PGPORT}/{PGDATABASE}?sslmode=require"
 
 try:
-    engine = create_engine(db_url)
+    engine = create_engine(db_url, connect_args={'connect_timeout': 10})
     class DB:
         def query(self, sql, params=None):
             return pd.read_sql(sql, engine, params=params)
